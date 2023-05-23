@@ -1,2 +1,3 @@
-# algo_rsi
+
+# Algo trading RSI 
 Repository for algo trading rsi 
