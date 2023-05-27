@@ -19,6 +19,14 @@ import numpy as np
 
 import logging
 
+import datetime 
+
+import csv
+
+from telethon.sync import TelegramClient
+
+from apscheduler.schedulers.background import BackgroundScheduler
+
 
 # --------------------------------------
 # Define binance client connection 
@@ -55,8 +63,6 @@ logger.addFilter(lambda record: not record.name.startswith('websockets'))
 global LOOKBACK
 LOOKBACK = 60
 
-global df
-
 START_YEAR = 2021
 START_MONTH = 1
 START_DAY = 1
@@ -91,18 +97,59 @@ TRADING_FEE = 0.001
 
 RISK_FRACTION = 0.2  
 
-global step_size
-step_size = 0.0001
+QUANTITY_PER_TRADE = 20 # Amount of dollars per transaction
 
-    # I want to buy 100 USD worth of BTC
-global usdt_quantity
-usdt_quantity = 20
-
-global RUN_TYPE 
 RUN_TYPE = 'TEST_TRADE' # 'TEST' or 'LIVE'
 
-global open_trades
 open_trades = []
+
+SYMBOL = 'BTCUSDT'
+
+SYMBOL_webshocket = 'btcusdt'
+
+UPDATE_FREQUENCY = 10 # 60 means 60 mnutues
+
+TIMEFRAME = '1m' # Timeframe for the candles 5m = 5 minutes
+
+global df 
+
+
+# ----------------------
+# Telegram functions 
+# ----------------------
+
+# connect telegram
+phone = config['telegram']['phone']
+api_id = config['telegram']['api_id']
+api_hash = config['telegram']['api_hash']
+api_messages = config['telegram']['api_messages']
+chat_id_messages = config['telegram']['chat_id_messages']
+api_alerts = config['telegram']['api_alerts']
+chat_id_alerts = config['telegram']['chat_id_alerts']
+bot_token = config['telegram']['token_rsi_bot']
+
+# connect telegram
+def connect_tg():
+
+    client = TelegramClient(phone, api_id, api_hash)
+
+    return client
+
+
+def send_message_to_telegram(value):
+
+     # message bot
+    api_messages = '1823897212:AAG-arikVtpOO8zGZfkkoCKo9I1XzbYd2iA'
+    chat_id_messages = str(556212849)
+
+    # alerts bot
+    api_alerts = '1683755311:AAFsOuP40Doy12JfTiFNzyIue2Fn_0XzWUg'
+    chat_id_alerts = str(591016753)
+
+    channel_api = 'bot'+ api_alerts
+    chat_id = chat_id_alerts
+    url = 'https://api.telegram.org/'+channel_api+'/sendMessage?chat_id=-'+chat_id+'&text="{}"'.format(value)
+    requests.get(url)
 
 
 # ----------------------
@@ -155,45 +202,47 @@ def find_local_minima_first(df, current_candle_pos,WINDOW_RANGE, RANGE_CHECK_LOC
 # -------- Get signal -------- #
 
 def get_signal(df):
+
+    data = df.copy()
     
     # Initialize signal column
-    df['Signal_Divergence'] = 0
+    data['Signal_Divergence'] = 0
    
     # pos is the max index in data
-    current_candle_pos = len(df) - 1
+    current_candle_pos = len(data) - 1
     
-    local_minima_pos_last = find_local_minima_last(df, current_candle_pos, RANGE_CHECK_LOCAL_MINIMA, LOCAL_DEEP_VAR)
-    local_minima_pos_first = find_local_minima_first(df, current_candle_pos, WINDOW_RANGE, RANGE_CHECK_LOCAL_MINIMA, LOCAL_DEEP_VAR)
+    local_minima_pos_last = find_local_minima_last(data, current_candle_pos, RANGE_CHECK_LOCAL_MINIMA, LOCAL_DEEP_VAR)
+    local_minima_pos_first = find_local_minima_first(data, current_candle_pos, WINDOW_RANGE, RANGE_CHECK_LOCAL_MINIMA, LOCAL_DEEP_VAR)
     
     if local_minima_pos_last >0 and local_minima_pos_first >0:
 
-        df.loc[current_candle_pos, 'local_minima_pos_first'] = local_minima_pos_first
-        df.loc[current_candle_pos, 'local_minima_pos_last'] = local_minima_pos_last
+        data.loc[current_candle_pos, 'local_minima_pos_first'] = local_minima_pos_first
+        data.loc[current_candle_pos, 'local_minima_pos_last'] = local_minima_pos_last
 
-        df.loc[current_candle_pos, 'local_minima_price_first'] = df.loc[local_minima_pos_first, 'mean']
-        df.loc[current_candle_pos, 'local_minima_price_last'] = df.loc[local_minima_pos_last, 'mean']
+        data.loc[current_candle_pos, 'local_minima_price_first'] = data.loc[local_minima_pos_first, 'mean']
+        data.loc[current_candle_pos, 'local_minima_price_last'] = data.loc[local_minima_pos_last, 'mean']
 
-        df.loc[current_candle_pos, 'local_minima_rsi_first'] = df.loc[local_minima_pos_first, 'RSI']
-        df.loc[current_candle_pos, 'local_minima_rsi_last'] = df.loc[local_minima_pos_last, 'RSI']
+        data.loc[current_candle_pos, 'local_minima_rsi_first'] = data.loc[local_minima_pos_first, 'RSI']
+        data.loc[current_candle_pos, 'local_minima_rsi_last'] = data.loc[local_minima_pos_last, 'RSI']
 
         # Create slope between local minima and local maxima
-        df['slope_price'] = (df['local_minima_price_last'] - df['local_minima_price_first']) / (
-                    df['local_minima_pos_last'] - df['local_minima_pos_first'])
+        data['slope_price'] = (data['local_minima_price_last'] - data['local_minima_price_first']) / (
+                    data['local_minima_pos_last'] - data['local_minima_pos_first'])
 
-        df['slope_rsi'] = (df['local_minima_rsi_last'] - df['local_minima_rsi_first']) / (
-                    df['local_minima_pos_last'] - df['local_minima_pos_first'])
+        data['slope_rsi'] = (data['local_minima_rsi_last'] - data['local_minima_rsi_first']) / (
+                    data['local_minima_pos_last'] - data['local_minima_pos_first'])
 
         # Create descending divergence signal
-        df.loc[(df['slope_price'] < 0) 
-            & (df['slope_rsi'] > 0)
-            & (df['RSI'] < RSI_OVERSOLD)
-            & (df['local_minima_rsi_first'] < RSI_OVERSOLD)
-            & (df['local_minima_rsi_last'] < RSI_OVERSOLD)
+        data.loc[(data['slope_price'] < 0) 
+            & (data['slope_rsi'] > 0)
+            & (data['RSI'] < RSI_OVERSOLD)
+            & (data['local_minima_rsi_first'] < RSI_OVERSOLD)
+            & (data['local_minima_rsi_last'] < RSI_OVERSOLD)
             , 'Signal_Divergence'] = 1
     
     # Get the signal
     Signal = False 
-    if df['Signal_Divergence'].iloc[-1] == 1:
+    if data['Signal_Divergence'].iloc[-1] == 1:
         Signal = True
 
     return Signal
@@ -203,40 +252,61 @@ def get_signal(df):
 # Trading Functions
 # ------------------------
 
-def execute_buy_trade(df):
+def quantiy_trade(df,QUANTITY_PER_TRADE,step_size):
+
+        # get last close price
+    last_close_price = df['close'].iloc[-1]
+
+    # Calculate the quantity of BTC to buy
+    quantity = float(QUANTITY_PER_TRADE / last_close_price)
+
+    # Adjust the quantity to meet the step size requirement
+    quantity = quantity - (quantity % step_size)
+
+    return quantity 
+
+def get_step_size(SYMBOL):
+    url = 'https://api.binance.com/api/v3/exchangeInfo'
+    r = requests.get(url)
+    exchange_info = r.json()
+
+    # Find the symbol in the exchange info
+    for s in exchange_info['symbols']:
+        if s['symbol'] == SYMBOL:
+            # Find the LOT_SIZE filter
+            for filter in s['filters']:
+                if filter['filterType'] == 'LOT_SIZE':
+                    return float(filter['stepSize'])
+
+    # If the symbol or LOT_SIZE filter was not found, return None
+    return None
+
+
+def execute_buy_order(SYMBOL, quantity):
 
     if RUN_TYPE == 'TEST':
         print('***********Test mode, no trade executed')
         return
 
-    # get last close price
-    last_close_price = df['close'].iloc[-1]
-    symbol = 'BTCUSDT'
-
-    # Calculate the quantity of BTC to buy
-    quantity = float(usdt_quantity / last_close_price)
-
-    # Adjust the quantity to meet the step size requirement
-    quantity = quantity - (quantity % step_size)
-
     try:
-        buy_order = client.order_market_buy(symbol=symbol, quantity=quantity)
+        buy_order = client.order_market_buy(symbol=SYMBOL, quantity=quantity)
         print('***********Order executed')
         logging.info('Order executed' + str(buy_order))
-        open_trades.append({'symbol': symbol, 'quantity': quantity, 'candle_counter': 0})
-        print(buy_order)
+        open_trades.append({'symbol': SYMBOL, 'quantity': quantity, 'candle_counter': 0})
+        print('Buy order executed. ID: {}, symbol: {}, Quantity: {}, Price: {}'.format(
+               buy_order['orderId'], buy_order['symbol'], buy_order['executedQty'], buy_order['fills'][0]['price']
+              ))
+        return buy_order
     except Exception as e:
         print('***********Order failed')
         logging.info('Order failed' + str(e))
-        print(e)
+        print('Order failed: {}'.format(e))
+        return None
 
 
 def execute_sell_order(trade):
-    try:
-        # Get balance before making the sell
-        balance_before = client.get_asset_balance(asset='USDT')
 
-        print(f"Balance before selling: {balance_before}")
+    try:
 
         # Execute sell order
         sell_order = client.order_market_sell(
@@ -245,19 +315,21 @@ def execute_sell_order(trade):
         )
         print('***********Order executed')
         logging.info('Order executed' + str(sell_order))
-        print(sell_order)
+        print('Sell order executed. ID: {}, symbol: {}, Quantity: {}, Price: {}'.format(
+            sell_order['orderId'], sell_order['symbol'], sell_order['executedQty'], sell_order['fills'][0]['price']
+              ))
 
-        # Get balance after making the sell
-        balance_after = client.get_asset_balance(asset='USDT')
-
-        print(f"Balance after selling: {balance_after}")
+        return sell_order
 
     except Exception as e:
-        print(f"An error occurred - {e}")
+        print('***********Order failed')
+        logging.info('Order failed' + str(e))
+        print('Order failed: {}'.format(e))
+        return None
 
 
-def check_balance(symbol):
-    balance = client.get_asset_balance(asset=symbol)
+def check_balance(SYMBOL):
+    balance = client.get_asset_balance(asset=SYMBOL)
     return float(balance['free'])
 
 
@@ -265,18 +337,15 @@ def check_balance(symbol):
 # Handle data Functions 
 # ------------------------
 
-def init_data():
+def init_data(SYMBOL):
 
-    symbol = 'BTCUSDT'
-    url = f'https://api.binance.com/api/v1/klines?symbol={symbol}&interval=5m&limit={LOOKBACK}'
+    url = f'https://api.binance.com/api/v1/klines?symbol={SYMBOL}&interval=5m&limit={LOOKBACK}'
 
     r = requests.get(url)
 
-    data = r.json()
+    data_request = r.json()
 
-    import pandas as pd
-
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(data_request)
 
     df.columns = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore']
 
@@ -284,7 +353,6 @@ def init_data():
 
     # transformt open_time to datetime object
     df['date'] = pd.to_datetime(df['open_time'], unit='ms')
-
 
     df = df[['date', 'open', 'high', 'low', 'close']]
 
@@ -319,15 +387,209 @@ def signal_func(flag=[True]):
     return result
 
 
-# ----------------------
-# Telegram functions 
-# ----------------------
-
-
-
 # ---------------------------------
-# Performance tracking functions 
+# Tracking functions 
 # ---------------------------------
+
+def init_data_tracking(): 
+    
+        # Initiate data tracking
+        data = {
+        'orders': [],
+        'open_trades': [],
+        'closed_trades': [],
+        'balance': [],
+        'performance_metrics': {},
+        }
+    
+        return data
+
+
+def save_to_csv(data):
+    # Save orders to CSV
+    if data['orders']:
+        with open('orders.csv', 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=data['orders'][0].keys())
+            writer.writeheader()
+            writer.writerows(data['orders'])
+
+    # Save open trades to CSV
+    if data['open_trades']:
+        with open('open_trades.csv', 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=data['open_trades'][0].keys())
+            writer.writeheader()
+            writer.writerows(data['open_trades'])
+
+    # Save closed trades to CSV
+    if data['closed_trades']:
+        with open('closed_trades.csv', 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=data['closed_trades'][0].keys())
+            writer.writeheader()
+            writer.writerows(data['closed_trades'])
+
+    # Save balance to CSV
+    if data['balance']:
+        with open('balance.csv', 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=data['balance'][0].keys())
+            writer.writeheader()
+            writer.writerows(data['balance'])
+
+    return print('Data saved to CSV')
+
+
+def calculate_metrics():
+    global data
+
+    closed_trades = data['closed_trades']
+    if not closed_trades:
+        return
+
+    # Initialize metrics
+    num_winning_trades = 0
+    num_losing_trades = 0
+    total_profit = 0
+    total_loss = 0
+    returns = []
+
+    # Calculate profits/losses and returns
+    for trade in closed_trades:
+        profit_loss = (trade['exit_price'] - trade['entry_price']) * trade['quantity']
+        if profit_loss > 0:
+            num_winning_trades += 1
+            total_profit += profit_loss
+        else:
+            num_losing_trades += 1
+            total_loss += abs(profit_loss)
+
+        returns.append(profit_loss / (trade['entry_price'] * trade['quantity']))
+
+    # Calculate metrics
+    profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
+    sharpe_ratio = np.mean(returns) / np.std(returns) if np.std(returns) != 0 else float('inf')
+    max_drawdown = max([j-i for i, j in zip(returns[:-1], returns[1:])])
+
+    # Store metrics in data dictionary
+    data['performance_metrics'] = {
+        'winning_trades': num_winning_trades,
+        'losing_trades': num_losing_trades,
+        'profit_factor': profit_factor,
+        'sharpe_ratio': sharpe_ratio,
+        'max_drawdown': max_drawdown,
+    }
+
+    save_to_csv(data)
+
+    return print('Metrics calculated and saved to CSV')
+
+
+def track_buy_order(order):
+    global data
+    
+    # Add the order to the list of orders
+    data['orders'].append({
+        'timestamp': datetime.datetime.now(),
+        'type': 'buy',
+        'symbol': order['symbol'],
+        'quantity': order['executedQty'],
+        'price': order['fills'][0]['price'],
+        'status': 'filled',
+        'order_id': order['orderId']
+    })
+
+    # Add the trade to the list of open trades
+    data['open_trades'].append({
+        'trade_id': order['orderId'],
+        'symbol': order['symbol'],
+        'entry_timestamp': datetime.datetime.now(),
+        'entry_price': order['fills'][0]['price'],
+        'quantity': order['executedQty'],
+        'current_price': order['fills'][0]['price'],
+        'current_profit_loss': 0,
+    })
+
+    # Save the trade execution details and updated open trades to CSV
+    save_to_csv(data)
+
+    return print('Buy Order Tracked')
+
+
+def track_sell_order(trade):
+    global data
+
+    # Remove the trade from the list of open trades
+    for open_trade in data['open_trades']:
+        if open_trade['trade_id'] == trade['trade_id']:
+            data['open_trades'].remove(open_trade)
+            break
+
+    # Add the trade to the list of closed trades
+    data['closed_trades'].append({
+        'trade_id': trade['trade_id'],
+        'symbol': trade['symbol'],
+        'entry_timestamp': trade['entry_timestamp'],
+        'entry_price': trade['entry_price'],
+        'quantity': trade['quantity'],
+        'exit_timestamp': datetime.datetime.now(),
+        'exit_price': trade['fills'][0]['price'],
+    })
+
+    # Save the trade execution details and updated open and closed trades to CSV
+    save_to_csv(data)
+
+    return print('Sell Order Tracked')
+
+
+dr
+
+
+def get_price(symbol):
+    url = f'https://api.binance.com/api/v3/ticker/price?symbol={symbol}'
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        price = float(data['price'])
+        return price
+    else:
+        raise Exception('Error retrieving price')
+
+
+def update_balance():
+    global data
+
+    # Get current BTC balance
+    btc_balance = check_balance('BTC')
+
+    # Get current USDT balance
+    usdt_balance = check_balance('USDT')
+
+    # Convert BTC balance to USDT using the current price
+    btc_usdt_price = get_price(SYMBOL)  # Replace 'BTCUSDT' with the appropriate symbol
+    btc_usdt_balance = btc_balance * btc_usdt_price
+
+    # Calculate the total balance
+    total_balance = usdt_balance + btc_usdt_balance
+
+    # Update balance in data dictionary
+    data['balance'].append({
+        'timestamp': datetime.datetime.now(),
+        'balance': total_balance,
+    })
+
+    # Save balance to CSV
+    with open('balance.csv', 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=data['balance'][0].keys())
+        writer.writerow(data['balance'][-1])
+
+    return print('Balance Updated')
+
+
+
+def start_update_balance_scheduler(update_frequency):
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(update_balance, 'interval', minutes=update_frequency)
+    scheduler.start()
+
+    return print('Balance Updated')
 
 
 # ---------------------
@@ -349,14 +611,33 @@ def on_message(ws, message,df):
         print('***********Get open trades')
         # Loop through all open trades
         for trade in open_trades:
-            trade['candle_counter'] += 1
+            trade['candle_counter'] += 2
 
-            if trade['candle_counter'] >= 5:
+            if trade['candle_counter'] >= 2:
                 print('Trade achieved 5 candles. Execute sell order')
-                execute_sell_order(trade)
+                sell_order = execute_sell_order(trade)
+                print('Sell order executed')
 
                 # Remove the trade from the list of open trades
+                print('Remove trade from list of open trades')
                 open_trades.remove(trade)
+                print('Removed trade from list of open trades')
+
+                # Track the sell order
+                print('Track sell order')
+                track_sell_order(sell_order)
+                print('Sell order tracked')
+                
+                print('Update the balance')
+                update_balance()
+                print('Balance updated')
+                
+                print('Calculate metrics')
+                calculate_metrics()
+                print('Metrics calculated')
+
+                # Send message to Telegram
+                send_message_to_telegram('Sell order executed')
 
 
         print('***********Get last candlestick')
@@ -377,10 +658,7 @@ def on_message(ws, message,df):
         print('***********Calculate signal')
         signal = get_signal(df)
 
-        # Print signal
-        print('***********Signal: ', signal)
-        
-        
+        # Get signal
         if RUN_TYPE == 'TEST_TRADE':
             signal = signal_func()
 
@@ -396,27 +674,42 @@ def on_message(ws, message,df):
             print('***********Balance before trade: ', balance_before_trade)
             logging.info('Balance before trade:' + str(balance_before_trade))
 
+            # Get quantity
+            quantity = quantiy_trade(df, QUANTITY_PER_TRADE, step_size)
+
             # Execute trade
-            execute_buy_trade(df)
+            buy_order = execute_buy_order(SYMBOL,quantity=quantity)
+
+            # Get final time after analysis
+            final_time_check = time.time()
+            
+            # Get analysis duration in seconss 
+            execution_time = final_time_check - init_time_check
+
+            print('***********Buy order Execution Time: ', execution_time)
 
             # Update balance
             balance_after_trade = check_balance('USDT')
             print('***********Balance after trade: ', balance_after_trade)
             logging.info('Balance after trade:' + str(balance_after_trade))
 
-       
-        # Get final time after analysis
-        final_time_check = time.time()
-        
-        # Get analysis duration in seconss 
-        analysis_duration = final_time_check - init_time_check
+            # Track buy order
+            track_buy_order(buy_order)
 
-        print('***********Analysis duration: ', analysis_duration)
+            # Update balance
+            update_balance()
+
+            # Calculate metrics
+            calculate_metrics()
+
+            # Send message to Telegram
+            send_message_to_telegram('Buy order executed')
 
 
 def on_error(ws, error):
     print(error)  # Handle any errors that occur during the WebSocket connection
     logging.error(error)
+
 
 def on_close(ws):
     print('***********WebSocket connection closed')  # Handle the WebSocket connection closing
@@ -426,7 +719,7 @@ def on_open(ws):
     subscribe_data = {
         'method': 'SUBSCRIBE',
         'params': [
-            'btcusdt@kline_5m'
+             f'{SYMBOL_webshocket}@kline_{TIMEFRAME}'
         ],
         'id': 1
     }
@@ -438,14 +731,48 @@ if __name__ == '__main__':
     # Init data
     print('***********Initializing data')
     logging.basicConfig(filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
+    
+    # Init data
+    df = init_data(SYMBOL)
 
-    df = init_data()
+    # Get step size
+    step_size = get_step_size(SYMBOL)
+
+    # Run type
+    print('***********Run type: ', RUN_TYPE)
+
+    # Init balance
+    print('***********Initializing balance')
+    logging.info('Initializing balance')
+    
+    balance = check_balance('USDT')
+
+    print('***********Balance: ', balance)
+
+    # Initialize data dictionary
+    print('***********Initializing data dictionary')
+    data = init_data_tracking() 
 
     # Init client
-    print('***********Initializing client')
-    logging.info('Initializing client')
+    print('***********Initializing binance client')
+    logging.info('Initializing binance client')
 
     client = Client(api_key, api_secret)
+
+    # Init telegram client
+    print('***********Initializing telegram client')
+    logging.info('Initializing telegram client')
+
+    client_telegram = connect_tg()
+    client_telegram.connect()
+
+    # Send init message to telegram
+    send_message_to_telegram('Bot started')
+
+    # Start balance update scheduler
+    print('***********Starting balance update scheduler')
+    logging.info('Starting balance update scheduler')
+    start_update_balance_scheduler(UPDATE_FREQUENCY)
 
     # Init websocket
     print('***********Initializing websocket')
@@ -461,3 +788,5 @@ if __name__ == '__main__':
     ws.on_open = on_open
 
     ws.run_forever()
+
+

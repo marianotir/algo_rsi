@@ -201,7 +201,7 @@ RISK_FRACTION = 0.2
 file_name = '400pais_1m/btcusd'
 
 # Load data 
-df_hist = pd.read_csv('./data/'+file_name+'.csv')
+df_hist = pd.read_csv('../data/'+file_name+'.csv')
 
 
 # ------------------
@@ -262,7 +262,7 @@ df = df.reset_index(drop=True)
 df['RSI'] = rsi(df,n=RSI_LOOKBACK)
 
 
-POS_RANGE = range(50,248432) # 730826)
+POS_RANGE = range(50,500) # 730826)
 
 for pos in POS_RANGE:
 
@@ -313,8 +313,8 @@ print('We have {} signals'.format(len(candle_pos_list)))
 
 if PLOT_POSITION:
     # Get init position for the plot 
-    candle_pos = candle_pos_list[5]
-    plot_candle_rsi(df, candle_pos_list[5])
+    candle_pos = candle_pos_list[4]
+    plot_candle_rsi(df, candle_pos_list[4])
 
 
 # --------------------
