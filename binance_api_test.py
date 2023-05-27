@@ -13,7 +13,7 @@ api_secret = config['binance']['secret']
 
 from binance.spot import Spot
 
-client = Spot()
+client =  Spot()
 
 # Get server timestamp
 print(client.time())
