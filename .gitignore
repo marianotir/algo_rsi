@@ -8,8 +8,9 @@ data/
 # ignore model files
 models/
 
-# ignore log files
-logs/
+# ignore log folder 
+*.log
+
 
 # ignore config.ini
 config.ini
@@ -17,5 +18,12 @@ config.ini
 # ignore pkl files 
 *.pkl
 
+# ignore .session
+*.session
 
+# ignore session-journal
+*.session-journal
+
+# ignore .csv files
+*.csv
 
