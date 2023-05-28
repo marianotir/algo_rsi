@@ -27,6 +27,9 @@ from telethon.sync import TelegramClient
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from decimal import Decimal, getcontext
+
+
 
 # --------------------------------------
 # Define binance client connection 
@@ -110,6 +113,8 @@ SYMBOL_webshocket = 'btcusdt'
 UPDATE_FREQUENCY = 10 # 60 means 60 mnutues
 
 TIMEFRAME = '1m' # Timeframe for the candles 5m = 5 minutes
+
+LIMIT_OPEN_TRADES = 1 # Limit the number of open trades
 
 global df 
 
@@ -252,19 +257,6 @@ def get_signal(df):
 # Trading Functions
 # ------------------------
 
-def quantiy_trade(df,QUANTITY_PER_TRADE,step_size):
-
-        # get last close price
-    last_close_price = df['close'].iloc[-1]
-
-    # Calculate the quantity of BTC to buy
-    quantity = float(QUANTITY_PER_TRADE / last_close_price)
-
-    # Adjust the quantity to meet the step size requirement
-    quantity = quantity - (quantity % step_size)
-
-    return quantity 
-
 def get_step_size(SYMBOL):
     url = 'https://api.binance.com/api/v3/exchangeInfo'
     r = requests.get(url)
@@ -281,6 +273,23 @@ def get_step_size(SYMBOL):
     # If the symbol or LOT_SIZE filter was not found, return None
     return None
 
+def quantiy_trade(df,QUANTITY_PER_TRADE,step_size):
+
+    # Set precision
+    getcontext().prec = 8
+
+    # get last close price
+    last_close_price = df['close'].iloc[-1]
+
+    # Calculate the quantity of BTC to buy
+    quantity = Decimal(QUANTITY_PER_TRADE / last_close_price)
+
+    # Adjust the quantity to meet the step size requirement
+    step_size = Decimal(step_size)
+    quantity = quantity - (quantity % step_size)
+
+    return float(quantity) 
+
 
 def execute_buy_order(SYMBOL, quantity):
 
@@ -292,7 +301,6 @@ def execute_buy_order(SYMBOL, quantity):
         buy_order = client.order_market_buy(symbol=SYMBOL, quantity=quantity)
         print('***********Order executed')
         logging.info('Order executed' + str(buy_order))
-        open_trades.append({'symbol': SYMBOL, 'quantity': quantity, 'candle_counter': 0})
         print('Buy order executed. ID: {}, symbol: {}, Quantity: {}, Price: {}'.format(
                buy_order['orderId'], buy_order['symbol'], buy_order['executedQty'], buy_order['fills'][0]['price']
               ))
@@ -309,23 +317,30 @@ def execute_sell_order(trade):
     try:
 
         # Execute sell order
-        sell_order = client.order_market_sell(
-            symbol=trade['symbol'],
-            quantity=trade['quantity']
-        )
-        print('***********Order executed')
+        try:
+            sell_order = client.order_market_sell(
+                symbol=trade['symbol'],
+                quantity=trade['quantity']
+            )
+        except: 
+            print('Quanity not enough to sell, smaller quantity will be sold')
+            sell_order = client.order_market_sell(
+                 symbol=trade['symbol'],
+                 quantity=str(float(trade['quantity']) * 0.9)
+                )
+        print('***********Sell Order executed')
         logging.info('Order executed' + str(sell_order))
         print('Sell order executed. ID: {}, symbol: {}, Quantity: {}, Price: {}'.format(
             sell_order['orderId'], sell_order['symbol'], sell_order['executedQty'], sell_order['fills'][0]['price']
               ))
-
-        return sell_order
+        return sell_order 
 
     except Exception as e:
         print('***********Order failed')
         logging.info('Order failed' + str(e))
         print('Order failed: {}'.format(e))
-        return None
+        raise Exception('Order failed: {}'.format(e))
+
 
 
 def check_balance(SYMBOL):
@@ -434,6 +449,13 @@ def save_to_csv(data):
             writer.writeheader()
             writer.writerows(data['balance'])
 
+    # Save performance metrics to CSV
+    if data['performance_metrics']:
+        with open('performance_metrics.csv', 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=data['performance_metrics'].keys())
+            writer.writeheader()
+            writer.writerow(data['performance_metrics'])
+
     return print('Data saved to CSV')
 
 
@@ -453,7 +475,9 @@ def calculate_metrics():
 
     # Calculate profits/losses and returns
     for trade in closed_trades:
-        profit_loss = (trade['exit_price'] - trade['entry_price']) * trade['quantity']
+        profit_loss = (float(trade['exit_price']) - float(trade['entry_price'])) * float(trade['quantity'])
+        trade_value = float(trade['entry_price']) * float(trade['quantity'])
+
         if profit_loss > 0:
             num_winning_trades += 1
             total_profit += profit_loss
@@ -461,12 +485,15 @@ def calculate_metrics():
             num_losing_trades += 1
             total_loss += abs(profit_loss)
 
-        returns.append(profit_loss / (trade['entry_price'] * trade['quantity']))
+        returns.append(profit_loss / trade_value)
 
     # Calculate metrics
     profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
     sharpe_ratio = np.mean(returns) / np.std(returns) if np.std(returns) != 0 else float('inf')
-    max_drawdown = max([j-i for i, j in zip(returns[:-1], returns[1:])])
+    if len(returns) > 1:
+        max_drawdown = max([j-i for i, j in zip(returns[:-1], returns[1:])])
+    else:
+        max_drawdown = 0
 
     # Store metrics in data dictionary
     data['performance_metrics'] = {
@@ -480,6 +507,11 @@ def calculate_metrics():
     save_to_csv(data)
 
     return print('Metrics calculated and saved to CSV')
+
+
+def update_counter(trade):
+    trade['candle_counter'] += 2
+    save_to_csv(data)
 
 
 def track_buy_order(order):
@@ -505,6 +537,7 @@ def track_buy_order(order):
         'quantity': order['executedQty'],
         'current_price': order['fills'][0]['price'],
         'current_profit_loss': 0,
+        'candle_counter': 0
     })
 
     # Save the trade execution details and updated open trades to CSV
@@ -513,14 +546,16 @@ def track_buy_order(order):
     return print('Buy Order Tracked')
 
 
-def track_sell_order(trade):
+def track_sell_order(trade,sell_order):
     global data
 
-    # Remove the trade from the list of open trades
-    for open_trade in data['open_trades']:
-        if open_trade['trade_id'] == trade['trade_id']:
-            data['open_trades'].remove(open_trade)
-            break
+    print('trade to be removed from open trades: ', trade)
+
+    # Remove the trade from the dictionary data 
+    data['open_trades'] = [i for i in data['open_trades'] if i['trade_id'] != trade['trade_id']]
+
+    # Get sell order price 
+    sell_order_price = sell_order['fills'][0]['price']
 
     # Add the trade to the list of closed trades
     data['closed_trades'].append({
@@ -528,9 +563,9 @@ def track_sell_order(trade):
         'symbol': trade['symbol'],
         'entry_timestamp': trade['entry_timestamp'],
         'entry_price': trade['entry_price'],
+        'exit_price': sell_order_price,
         'quantity': trade['quantity'],
         'exit_timestamp': datetime.datetime.now(),
-        'exit_price': trade['fills'][0]['price'],
     })
 
     # Save the trade execution details and updated open and closed trades to CSV
@@ -539,10 +574,8 @@ def track_sell_order(trade):
     return print('Sell Order Tracked')
 
 
-dr
-
-
 def get_price(symbol):
+
     url = f'https://api.binance.com/api/v3/ticker/price?symbol={symbol}'
     response = requests.get(url)
     if response.status_code == 200:
@@ -583,7 +616,6 @@ def update_balance():
     return print('Balance Updated')
 
 
-
 def start_update_balance_scheduler(update_frequency):
     scheduler = BackgroundScheduler()
     scheduler.add_job(update_balance, 'interval', minutes=update_frequency)
@@ -598,8 +630,8 @@ def start_update_balance_scheduler(update_frequency):
 
 def on_message(ws, message,df):
 
-    data = json.loads(message)
-    candlestick = data['k']
+    data_binance = json.loads(message)
+    candlestick = data_binance['k']
 
     if candlestick['x']:
 
@@ -607,37 +639,37 @@ def on_message(ws, message,df):
         
         # Get initial time before analysis 
         init_time_check = time.time()
-        
-        print('***********Get open trades')
-        # Loop through all open trades
-        for trade in open_trades:
-            trade['candle_counter'] += 2
 
-            if trade['candle_counter'] >= 2:
-                print('Trade achieved 5 candles. Execute sell order')
-                sell_order = execute_sell_order(trade)
-                print('Sell order executed')
+        if data['open_trades']:
+            print('***********Get open trades')
+            # Loop through all open trades
+            for trade in data['open_trades']:
+                update_counter(trade)
+            
+            for trade in data['open_trades']:
+                if trade['candle_counter'] >= 2:
+                    print('Trade achieved 5 candles. Execute sell order')
+                    sell_order = None
+                    sell_order  = execute_sell_order(trade)
+                    
+                    if sell_order:
+                        # Track the sell order
+                        print('Track sell order')
+                        track_sell_order(trade, sell_order)
+                        print('Sell order tracked')
+                        
+                        print('Update the balance')
+                        update_balance()
+                        print('Balance updated')
+                        
+                        print('Calculate metrics')
+                        calculate_metrics()
+                        print('Metrics calculated')
 
-                # Remove the trade from the list of open trades
-                print('Remove trade from list of open trades')
-                open_trades.remove(trade)
-                print('Removed trade from list of open trades')
-
-                # Track the sell order
-                print('Track sell order')
-                track_sell_order(sell_order)
-                print('Sell order tracked')
-                
-                print('Update the balance')
-                update_balance()
-                print('Balance updated')
-                
-                print('Calculate metrics')
-                calculate_metrics()
-                print('Metrics calculated')
-
-                # Send message to Telegram
-                send_message_to_telegram('Sell order executed')
+                        # Send message to Telegram
+                        send_message_to_telegram('Sell order executed')
+        else:
+              print("No open trades yet")
 
 
         print('***********Get last candlestick')
@@ -664,47 +696,61 @@ def on_message(ws, message,df):
 
         print('***********Signal: ', signal)
 
+        # Get current usdt balance 
+        print('***********Get current usdt balance')
+        usdt_balance = check_balance('USDT')
+        print('***********USDT Balance: ', usdt_balance)
+
         # Execute Trade 
         if signal:
-
-            print('***********Execute Trade')
-
-            # Get balance
-            balance_before_trade = check_balance('USDT')
-            print('***********Balance before trade: ', balance_before_trade)
-            logging.info('Balance before trade:' + str(balance_before_trade))
-
-            # Get quantity
-            quantity = quantiy_trade(df, QUANTITY_PER_TRADE, step_size)
-
-            # Execute trade
-            buy_order = execute_buy_order(SYMBOL,quantity=quantity)
-
-            # Get final time after analysis
-            final_time_check = time.time()
             
-            # Get analysis duration in seconss 
-            execution_time = final_time_check - init_time_check
+            if usdt_balance > QUANTITY_PER_TRADE or len(data['open_trades']) > LIMIT_OPEN_TRADES:
 
-            print('***********Buy order Execution Time: ', execution_time)
+                print('***********Execute Trade')
 
-            # Update balance
-            balance_after_trade = check_balance('USDT')
-            print('***********Balance after trade: ', balance_after_trade)
-            logging.info('Balance after trade:' + str(balance_after_trade))
+                # Get balance
+                balance_before_trade = check_balance('USDT')
+                print('***********Balance before trade: ', balance_before_trade)
+                logging.info('Balance before trade:' + str(balance_before_trade))
 
-            # Track buy order
-            track_buy_order(buy_order)
+                # Get quantity
+                quantity = quantiy_trade(df, QUANTITY_PER_TRADE, step_size)
 
-            # Update balance
-            update_balance()
+                # Execute trade
+                buy_order = execute_buy_order(SYMBOL,quantity=quantity)
 
-            # Calculate metrics
-            calculate_metrics()
+                # Get final time after analysis
+                final_time_check = time.time()
+                
+                # Get analysis duration in seconss 
+                execution_time = final_time_check - init_time_check
 
-            # Send message to Telegram
-            send_message_to_telegram('Buy order executed')
+                print('***********Buy order Execution Time: ', execution_time)
 
+                # Update balance
+                balance_after_trade = check_balance('USDT')
+                print('***********Balance after trade: ', balance_after_trade)
+                logging.info('Balance after trade:' + str(balance_after_trade))
+
+                # Track buy order
+                track_buy_order(buy_order)
+
+                # Update balance
+                update_balance()
+
+                # Calculate metrics
+                calculate_metrics()
+
+                # Send message to Telegram
+                send_message_to_telegram('Buy order executed')
+
+            else:
+                if usdt_balance < QUANTITY_PER_TRADE:
+                    print('***********Not enough balance to execute trade')
+                    logging.info('Not enough balance to execute trade')
+                if len(data['open_trades']) > LIMIT_OPEN_TRADES:
+                    print('***********Limit open trades reached')
+                    logging.info('Limit open trades reached')
 
 def on_error(ws, error):
     print(error)  # Handle any errors that occur during the WebSocket connection
