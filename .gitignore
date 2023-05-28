@@ -11,7 +11,6 @@ models/
 # ignore log folder 
 *.log
 
-
 # ignore config.ini
 config.ini
 
@@ -23,7 +22,3 @@ config.ini
 
 # ignore session-journal
 *.session-journal
-
-# ignore .csv files
-*.csv
-
