@@ -11,8 +11,21 @@ from dash.dependencies import Input, Output
 from dash import dash_table
 import pandas as pd
 import plotly.express as px
-import pickle
-import numpy as np
+import os
+
+
+# -------------------
+# Define functions 
+# -------------------
+
+def read_csv_with_headers(filename, headers):
+    if os.stat(filename).st_size > 0:  # Check if file is not empty
+        return pd.read_csv(filename)
+    else:  # If file is empty, return empty dataframe with headers
+        return pd.DataFrame(columns=headers)
+    
+open_trades_headers = ['trade_id', 'symbol', 'entry_timestamp', 'entry_price', 'quantity', 
+                      'candle_counter']
 
 
 # ---------------------
@@ -20,7 +33,7 @@ import numpy as np
 # ---------------------
 
 # Load data
-open_trades = pd.read_csv('open_trades.csv')
+open_trades = read_csv_with_headers('open_trades.csv', open_trades_headers)
 metrics = pd.read_csv('performance_metrics.csv')
 balance = pd.read_csv('balance.csv')
 backtest = pd.read_csv('backtest_results.csv')
@@ -37,9 +50,6 @@ backtest_fig = px.line(backtest, x='timestamp', y='cum_strategy_return', title='
 # Define x and y tltles as x date and y return 
 backtest_fig.update_xaxes(title_text='Date')
 backtest_fig.update_yaxes(title_text='Return')
-
-# remove 'current_price' from open_trades
-open_trades = open_trades.drop(columns=['current_price'])
 
 
 # ---------------------

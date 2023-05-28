@@ -100,7 +100,7 @@ RISK_FRACTION = 0.2
 
 QUANTITY_PER_TRADE = 20 # Amount of dollars per transaction
 
-RUN_TYPE = 'LIVE' # 'TEST' or 'LIVE'
+RUN_TYPE = 'TEST_TRADE' # 'TEST' or 'LIVE' or 'TEST_TRADE
 
 SYMBOL = 'BTCUSDT'
 
@@ -530,8 +530,6 @@ def track_buy_order(order):
         'entry_timestamp': datetime.datetime.now(),
         'entry_price': order['fills'][0]['price'],
         'quantity': order['executedQty'],
-        'current_price': order['fills'][0]['price'],
-        'current_profit_loss': 0,
         'candle_counter': 0
     })
 
@@ -541,13 +539,19 @@ def track_buy_order(order):
     return print('Buy Order Tracked')
 
 
-def track_sell_order(trade,sell_order):
+def track_sell_order(trade, sell_order):
     global data
 
     print('trade to be removed from open trades: ', trade)
 
     # Remove the trade from the dictionary data 
     data['open_trades'] = [i for i in data['open_trades'] if i['trade_id'] != trade['trade_id']]
+
+    # Save updated open trades to CSV right after removal
+    with open('open_trades.csv', 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=data['open_trades'][0].keys() if data['open_trades'] else [])
+        writer.writeheader()
+        writer.writerows(data['open_trades'])
 
     # Get sell order price 
     sell_order_price = sell_order['fills'][0]['price']
@@ -563,7 +567,7 @@ def track_sell_order(trade,sell_order):
         'exit_timestamp': datetime.datetime.now(),
     })
 
-    # Save the trade execution details and updated open and closed trades to CSV
+    # Save the trade execution details and updated closed trades to CSV
     save_to_csv(data)
 
     return print('Sell Order Tracked')

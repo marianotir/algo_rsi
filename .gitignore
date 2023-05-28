@@ -22,3 +22,6 @@ config.ini
 
 # ignore session-journal
 *.session-journal
+
+# igtnore csv 
+*.csv
