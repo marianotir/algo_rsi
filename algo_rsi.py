@@ -789,10 +789,9 @@ if __name__ == '__main__':
     # Init balance
     print('***********Initializing balance')
     logging.info('Initializing balance')
-    
     balance = check_balance('USDT')
-
     print('***********Balance: ', balance)
+    update_balance()
 
     # Initialize data dictionary
     print('***********Initializing data dictionary')
