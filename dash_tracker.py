@@ -11,9 +11,8 @@ from dash.dependencies import Input, Output
 from dash import dash_table
 import pandas as pd
 import plotly.express as px
-import os
-
-from apscheduler.schedulers.background import BackgroundScheduler
+import configparser
+import dash_bootstrap_components as dbc
 
 
 # -------------------
@@ -28,17 +27,14 @@ def read_csv_with_headers(filename, headers):
         return df
     except pd.errors.EmptyDataError:
         return pd.DataFrame(columns=headers)
-
-
     
 open_trades_headers = ['trade_id', 'symbol', 'entry_timestamp', 'entry_price', 'quantity', 
                       'candle_counter']
 
 
-
-# Load data function
+# Update data function
 def update_data():
-    global open_trades, metrics, balance, backtest,backtest_metrics,balance_fig,backtest_fig
+    global open_trades, metrics, balance, backtest,backtest_metrics,balance_fig,backtest_fig,asset_exposure_fig
     open_trades = read_csv_with_headers('open_trades.csv',open_trades_headers)
     metrics = pd.read_csv('performance_metrics.csv')
     balance = pd.read_csv('balance.csv')
@@ -48,43 +44,53 @@ def update_data():
     open_trades['entry_timestamp'] = pd.to_datetime(open_trades['entry_timestamp'])
     backtest['timestamp'] = pd.to_datetime(backtest['timestamp'])
     
-    # define figures
+    # balance fig 
     balance_fig = px.line(balance, x='timestamp', y='balance', title='Total Current Balance')
+    balance_fig.update_layout(
+    template='plotly_dark',
+    plot_bgcolor='rgba(0, 0, 0, 0)',
+    paper_bgcolor='rgba(0, 0, 0, 0)',
+    )
+    
+    # backtest fig
     backtest_fig = px.line(backtest, x='timestamp', y='cum_strategy_return', title='Backtest')
-    # Define x and y tltles as x date and y return 
     backtest_fig.update_xaxes(title_text='Date')
     backtest_fig.update_yaxes(title_text='Return')
+    backtest_fig.update_layout(
+    template='plotly_dark',
+    plot_bgcolor='rgba(0, 0, 0, 0)',
+    paper_bgcolor='rgba(0, 0, 0, 0)',
+    )
+
+    # define asset exposure figure
+    asset_exposure_fig = px.pie(open_trades, names='symbol', title='Assets Exposure')
+    asset_exposure_fig.update_layout(
+    template='plotly_dark',
+    plot_bgcolor='rgba(0, 0, 0, 0)',
+    paper_bgcolor='rgba(0, 0, 0, 0)',
+    )
+
+
+# ------------------------
+# Get initial variables 
+# ------------------------
+
+# Create a config parser
+config = configparser.ConfigParser()
+
+# Read the config file
+config.read('config.ini')
+
+# Get the update interval
+update_interval = config.getint('settings', 'update_interval')
 
 
 # ---------------------
-# Initial data 
+# Initialize variables
 # ---------------------
 
-open_trades = read_csv_with_headers('open_trades.csv',open_trades_headers)
-metrics = pd.read_csv('performance_metrics.csv')
-balance = pd.read_csv('balance.csv')
-backtest = pd.read_csv('backtest_results.csv')
-backtest_metrics = pd.read_csv('backtest_metrics.csv')
-balance['timestamp'] = pd.to_datetime(balance['timestamp'])
-open_trades['entry_timestamp'] = pd.to_datetime(open_trades['entry_timestamp'])
-backtest['timestamp'] = pd.to_datetime(backtest['timestamp'])
-
-# define figures
-balance_fig = px.line(balance, x='timestamp', y='balance', title=f'Total Current Balance: {round(balance.iloc[-1,1],0)}')
-backtest_fig = px.line(backtest, x='timestamp', y='cum_strategy_return', title='Backtest')
-# Define x and y tltles as x date and y return 
-backtest_fig.update_xaxes(title_text='Date')
-backtest_fig.update_yaxes(title_text='Return')
-
-
-# ---------------------
-# Initiate Scheduler 
-# ---------------------
-
-# Define data refresh schedule (every 5 minutes)
-scheduler = BackgroundScheduler(daemon=True)
-scheduler.add_job(update_data, 'interval', minutes=5)
-scheduler.start()
+# Initialize data
+update_data()
 
 
 # ---------------------
@@ -92,7 +98,7 @@ scheduler.start()
 # ---------------------
 
 # Initialize Dash app
-app = dash.Dash(__name__)
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.SOLAR])
 
 # Define layout
 app.layout = html.Div([
@@ -113,7 +119,7 @@ app.layout = html.Div([
             ),
             dcc.Graph(
                 id='asset_exposure',
-                figure=px.pie(open_trades, names='symbol', title='Assets Exposure')
+                figure=asset_exposure_fig
             ),
             html.H2('Metrics'),
             dash_table.DataTable(
@@ -138,8 +144,43 @@ app.layout = html.Div([
                 style_cell={'height': 'auto'},
             )
         ]),
-    ])
+    ]),
+    dcc.Interval(id='interval-component', interval=update_interval*60*1000)  # in milliseconds
 ])
+
+# Callbacks:
+@app.callback(
+    Output('balance_graph', 'figure'),
+    Input('interval-component', 'n_intervals')
+)
+def update_balance_fig(n):
+    update_data()
+    return balance_fig
+
+@app.callback(
+    Output('open_trades_table', 'data'),
+    Input('interval-component', 'n_intervals')
+)
+def update_open_trades(n):
+    update_data()
+    return open_trades.to_dict('records')
+
+@app.callback(
+    Output('asset_exposure', 'figure'),
+    Input('interval-component', 'n_intervals')
+)
+def update_asset_exposure(n):
+    update_data()
+    return asset_exposure_fig
+
+@app.callback(
+    Output('metrics_table', 'data'),
+    Input('interval-component', 'n_intervals')
+)
+def update_metrics(n):
+    update_data()
+    return metrics.to_dict('records')
+
 
 if __name__ == '__main__':
     app.run_server(host='0.0.0.0', port=8080, debug=False)
