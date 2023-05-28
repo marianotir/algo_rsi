@@ -786,6 +786,10 @@ if __name__ == '__main__':
     # Run type
     print('***********Run type: ', RUN_TYPE)
 
+    # Initialize data dictionary
+    print('***********Initializing data dictionary')
+    data = init_data_tracking() 
+
     # Init balance
     print('***********Initializing balance')
     logging.info('Initializing balance')
@@ -793,11 +797,7 @@ if __name__ == '__main__':
     print('***********Balance: ', balance)
     update_balance()
 
-    # Initialize data dictionary
-    print('***********Initializing data dictionary')
-    data = init_data_tracking() 
-
-    # Init client
+    # Init binance client
     print('***********Initializing binance client')
     logging.info('Initializing binance client')
 
@@ -811,7 +811,7 @@ if __name__ == '__main__':
     client_telegram.connect()
 
     # Send init message to telegram
-    send_message_to_telegram('Bot started')
+    send_message_to_telegram('Algo Strategy started')
 
     # Start balance update scheduler
     print('***********Starting balance update scheduler')
