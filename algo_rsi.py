@@ -112,6 +112,8 @@ TIMEFRAME = '1m' # Timeframe for the candles 5m = 5 minutes
 
 LIMIT_OPEN_TRADES = 3 # Limit the number of open trades
 
+RESTART = True #
+
 global df 
 
 
@@ -846,8 +848,9 @@ if __name__ == '__main__':
     data = init_data_tracking() 
 
     # Initialize files 
-    print('***********Initializing files')
-    init_csv_files()
+    if not RESTART:
+        print('***********Initializing files')
+        init_csv_files()
 
     # Init balance
     print('***********Initializing balance')
