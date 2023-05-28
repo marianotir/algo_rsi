@@ -13,33 +13,58 @@ import pandas as pd
 import plotly.express as px
 import os
 
+from apscheduler.schedulers.background import BackgroundScheduler
+
 
 # -------------------
 # Define functions 
 # -------------------
 
 def read_csv_with_headers(filename, headers):
-    if os.stat(filename).st_size > 0:  # Check if file is not empty
-        return pd.read_csv(filename)
-    else:  # If file is empty, return empty dataframe with headers
+    try:
+        df = pd.read_csv(filename)
+        if df.empty:
+            df = pd.DataFrame(columns=headers)
+        return df
+    except pd.errors.EmptyDataError:
         return pd.DataFrame(columns=headers)
+
+
     
 open_trades_headers = ['trade_id', 'symbol', 'entry_timestamp', 'entry_price', 'quantity', 
                       'candle_counter']
 
 
+
+# Load data function
+def update_data():
+    global open_trades, metrics, balance, backtest,backtest_metrics,balance_fig,backtest_fig
+    open_trades = pd.read_csv('open_trades.csv')
+    metrics = pd.read_csv('performance_metrics.csv')
+    balance = pd.read_csv('balance.csv')
+    backtest = pd.read_csv('backtest_results.csv')
+    backtest_metrics = pd.read_csv('backtest_metrics.csv')
+    balance['timestamp'] = pd.to_datetime(balance['timestamp'])
+    open_trades['entry_timestamp'] = pd.to_datetime(open_trades['entry_timestamp'])
+    backtest['timestamp'] = pd.to_datetime(backtest['timestamp'])
+    
+    # define figures
+    balance_fig = px.line(balance, x='timestamp', y='balance', title='Total Current Balance')
+    backtest_fig = px.line(backtest, x='timestamp', y='cum_strategy_return', title='Backtest')
+    # Define x and y tltles as x date and y return 
+    backtest_fig.update_xaxes(title_text='Date')
+    backtest_fig.update_yaxes(title_text='Return')
+
+
 # ---------------------
-# Initiate variables 
+# Initial data 
 # ---------------------
 
-# Load data
-open_trades = read_csv_with_headers('open_trades.csv', open_trades_headers)
+open_trades = read_csv_with_headers('open_trades.csv',open_trades_headers)
 metrics = pd.read_csv('performance_metrics.csv')
 balance = pd.read_csv('balance.csv')
 backtest = pd.read_csv('backtest_results.csv')
 backtest_metrics = pd.read_csv('backtest_metrics.csv')
-
-
 balance['timestamp'] = pd.to_datetime(balance['timestamp'])
 open_trades['entry_timestamp'] = pd.to_datetime(open_trades['entry_timestamp'])
 backtest['timestamp'] = pd.to_datetime(backtest['timestamp'])
@@ -50,6 +75,16 @@ backtest_fig = px.line(backtest, x='timestamp', y='cum_strategy_return', title='
 # Define x and y tltles as x date and y return 
 backtest_fig.update_xaxes(title_text='Date')
 backtest_fig.update_yaxes(title_text='Return')
+
+
+# ---------------------
+# Initiate Scheduler 
+# ---------------------
+
+# Define data refresh schedule (every 5 minutes)
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.add_job(update_data, 'interval', minutes=5)
+scheduler.start()
 
 
 # ---------------------
