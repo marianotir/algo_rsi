@@ -1,0 +1,2 @@
+trade_id,symbol,entry_timestamp,entry_price,exit_price,quantity,exit_timestamp
+21265114183,BTCUSDT,2023-05-28 03:11:01.221992,27116.50000000,27099.82000000,0.00073000,2023-05-28 03:12:00.519697
