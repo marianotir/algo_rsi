@@ -70,7 +70,7 @@ open_trades['entry_timestamp'] = pd.to_datetime(open_trades['entry_timestamp'])
 backtest['timestamp'] = pd.to_datetime(backtest['timestamp'])
 
 # define figures
-balance_fig = px.line(balance, x='timestamp', y='balance', title='Total Current Balance')
+balance_fig = px.line(balance, x='timestamp', y='balance', title=f'Total Current Balance: {round(balance.iloc[-1,1],0)}')
 backtest_fig = px.line(backtest, x='timestamp', y='cum_strategy_return', title='Backtest')
 # Define x and y tltles as x date and y return 
 backtest_fig.update_xaxes(title_text='Date')
