@@ -100,7 +100,7 @@ RISK_FRACTION = 0.2
 
 QUANTITY_PER_TRADE = 20 # Amount of dollars per transaction
 
-RUN_TYPE = 'TEST_TRADE' # 'TEST' or 'LIVE' or 'TEST_TRADE
+RUN_TYPE = config['Setup']['run_type']
 
 SYMBOL = 'BTCUSDT'
 
@@ -615,12 +615,46 @@ def update_balance():
     return print('Balance Updated')
 
 
+def balance_init(): 
+    global data 
+
+    # Get current BTC balance
+    btc_balance = check_balance('BTC')
+
+    # Get current USDT balance
+    usdt_balance = check_balance('USDT')
+
+    # Convert BTC balance to USDT using the current price
+    btc_usdt_price = get_price(SYMBOL)  # Replace 'BTCUSDT' with the appropriate symbol
+    btc_usdt_balance = btc_balance * btc_usdt_price
+
+    # Calculate the total balance
+    total_balance = usdt_balance + btc_usdt_balance
+
+    # Update balance in data dictionary
+    data['balance'].append({
+        'timestamp': datetime.datetime.now(),
+        'balance': total_balance,
+    })
+
+    # Save balance to CSV
+    with open('balance.csv', 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=data['balance'][0].keys())
+        writer.writeheader()
+        writer.writerow(data['balance'][0])
+
+    return print('Balance Initialized')
+
+
 def start_update_balance_scheduler(update_frequency):
     scheduler = BackgroundScheduler()
     scheduler.add_job(update_balance, 'interval', minutes=update_frequency)
     scheduler.start()
 
     return print('Balance Updated')
+
+
+
 
 
 # ---------------------
@@ -786,19 +820,18 @@ if __name__ == '__main__':
     # Run type
     print('***********Run type: ', RUN_TYPE)
 
-    # Init balance
-    print('***********Initializing balance')
-    logging.info('Initializing balance')
-    
-    balance = check_balance('USDT')
-
-    print('***********Balance: ', balance)
-
     # Initialize data dictionary
     print('***********Initializing data dictionary')
     data = init_data_tracking() 
 
-    # Init client
+    # Init balance
+    print('***********Initializing balance')
+    logging.info('Initializing balance')
+    balance = check_balance('USDT')
+    print('***********Balance: ', balance)
+    balance_init()
+
+    # Init binance client
     print('***********Initializing binance client')
     logging.info('Initializing binance client')
 
@@ -812,7 +845,7 @@ if __name__ == '__main__':
     client_telegram.connect()
 
     # Send init message to telegram
-    send_message_to_telegram('Bot started')
+    send_message_to_telegram('Algo Strategy started')
 
     # Start balance update scheduler
     print('***********Starting balance update scheduler')
@@ -823,7 +856,7 @@ if __name__ == '__main__':
     print('***********Initializing websocket')
     logging.info('Initializing websocket')
     
-    websocket.enableTrace(True)  # Enable WebSocket connection tracing (optional)
+    websocket.enableTrace(False)  # Enable WebSocket connection tracing (optional)
     ws = websocket.WebSocketApp(
         'wss://stream.binance.com:9443/ws',
         on_message=lambda ws, message: on_message(ws, message, df),
