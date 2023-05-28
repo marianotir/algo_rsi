@@ -39,7 +39,7 @@ open_trades_headers = ['trade_id', 'symbol', 'entry_timestamp', 'entry_price', '
 # Load data function
 def update_data():
     global open_trades, metrics, balance, backtest,backtest_metrics,balance_fig,backtest_fig
-    open_trades = pd.read_csv('open_trades.csv')
+    open_trades = read_csv_with_headers('open_trades.csv',open_trades_headers)
     metrics = pd.read_csv('performance_metrics.csv')
     balance = pd.read_csv('balance.csv')
     backtest = pd.read_csv('backtest_results.csv')
@@ -142,4 +142,4 @@ app.layout = html.Div([
 ])
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(host='0.0.0.0', port=8080, debug=True)
