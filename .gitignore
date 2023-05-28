@@ -24,4 +24,4 @@ config.ini
 *.session-journal
 
 # igtnore csv 
-# *.csv
+*.csv
