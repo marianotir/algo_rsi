@@ -100,7 +100,7 @@ RISK_FRACTION = 0.2
 
 QUANTITY_PER_TRADE = 20 # Amount of dollars per transaction
 
-RUN_TYPE = 'TEST_TRADE' # 'TEST' or 'LIVE' or 'TEST_TRADE
+RUN_TYPE = config['Setup']['run_type']
 
 SYMBOL = 'BTCUSDT'
 
@@ -823,7 +823,7 @@ if __name__ == '__main__':
     print('***********Initializing websocket')
     logging.info('Initializing websocket')
     
-    websocket.enableTrace(True)  # Enable WebSocket connection tracing (optional)
+    websocket.enableTrace(False)  # Enable WebSocket connection tracing (optional)
     ws = websocket.WebSocketApp(
         'wss://stream.binance.com:9443/ws',
         on_message=lambda ws, message: on_message(ws, message, df),
