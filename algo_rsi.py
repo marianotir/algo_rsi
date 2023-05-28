@@ -418,37 +418,32 @@ def init_data_tracking():
 def save_to_csv(data):
     # Save orders to CSV
     if data['orders']:
-        with open('orders.csv', 'w', newline='') as f:
+        with open('orders.csv', 'a', newline='') as f:  # 'a' is used for appending
             writer = csv.DictWriter(f, fieldnames=data['orders'][0].keys())
-            writer.writeheader()
             writer.writerows(data['orders'])
 
     # Save open trades to CSV
     if data['open_trades']:
-        with open('open_trades.csv', 'w', newline='') as f:
+        with open('open_trades.csv', 'a', newline='') as f:  # 'a' is used for appending
             writer = csv.DictWriter(f, fieldnames=data['open_trades'][0].keys())
-            writer.writeheader()
             writer.writerows(data['open_trades'])
 
     # Save closed trades to CSV
     if data['closed_trades']:
-        with open('closed_trades.csv', 'w', newline='') as f:
+        with open('closed_trades.csv', 'a', newline='') as f:  # 'a' is used for appending
             writer = csv.DictWriter(f, fieldnames=data['closed_trades'][0].keys())
-            writer.writeheader()
             writer.writerows(data['closed_trades'])
 
     # Save balance to CSV
     if data['balance']:
-        with open('balance.csv', 'w', newline='') as f:
+        with open('balance.csv', 'a', newline='') as f:  # 'a' is used for appending
             writer = csv.DictWriter(f, fieldnames=data['balance'][0].keys())
-            writer.writeheader()
             writer.writerows(data['balance'])
 
     # Save performance metrics to CSV
     if data['performance_metrics']:
-        with open('performance_metrics.csv', 'w', newline='') as f:
+        with open('performance_metrics.csv', 'a', newline='') as f:  # 'a' is used for appending
             writer = csv.DictWriter(f, fieldnames=data['performance_metrics'].keys())
-            writer.writeheader()
             writer.writerow(data['performance_metrics'])
 
     return print('Data saved to CSV')
@@ -483,8 +478,8 @@ def calculate_metrics():
         returns.append(profit_loss / trade_value)
 
     # Calculate metrics
-    profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
-    sharpe_ratio = np.mean(returns) / np.std(returns) if np.std(returns) != 0 else float('inf')
+    profit_factor = round(total_profit / total_loss if total_loss != 0 else float('inf'),2)
+    sharpe_ratio = round(np.mean(returns) / np.std(returns) if np.std(returns) != 0 else float('inf'),2)
     if len(returns) > 1:
         max_drawdown = max([j-i for i, j in zip(returns[:-1], returns[1:])])
     else:
@@ -638,9 +633,8 @@ def balance_init():
     })
 
     # Save balance to CSV
-    with open('balance.csv', 'a', newline='') as f:
+    with open('balance.csv', 'a', newline='') as f:  # 'a' is used for appending
         writer = csv.DictWriter(f, fieldnames=data['balance'][0].keys())
-        writer.writeheader()
         writer.writerow(data['balance'][0])
 
     return print('Balance Initialized')
@@ -652,6 +646,36 @@ def start_update_balance_scheduler(update_frequency):
     scheduler.start()
 
     return print('Balance Updated')
+
+
+def init_csv_files(): 
+
+    # Initialize balance CSV
+    with open('balance.csv', 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['timestamp', 'balance'])
+        writer.writeheader()
+
+    # Initialize open trades CSV
+    with open('open_trades.csv', 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['trade_id', 'symbol', 'entry_timestamp', 'entry_price', 'quantity', 'candle_counter'])
+        writer.writeheader()
+
+    # Initialize closed trades CSV
+    with open('closed_trades.csv', 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['trade_id', 'symbol', 'entry_timestamp', 'entry_price', 'exit_timestamp', 'exit_price', 'quantity'])
+        writer.writeheader()
+
+    # Initialize orders CSV
+    with open('orders.csv', 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['timestamp', 'type', 'symbol', 'quantity', 'price', 'status', 'order_id'])
+        writer.writeheader()
+
+    # Initialize performance metrics CSV
+    with open('performance_metrics.csv', 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['winning_trades', 'losing_trades', 'profit_factor', 'sharpe_ratio', 'max_drawdown'])
+        writer.writeheader()
+
+    return print('CSV Files Initialized')
 
 
 # ---------------------
@@ -821,24 +845,24 @@ if __name__ == '__main__':
     print('***********Initializing data dictionary')
     data = init_data_tracking() 
 
+    # Initialize files 
+    print('***********Initializing files')
+    init_csv_files()
+
     # Init balance
     print('***********Initializing balance')
     logging.info('Initializing balance')
     balance = check_balance('USDT')
-    print('***********Balance: ', balance)
     balance_init()
-
 
     # Init binance client
     print('***********Initializing binance client')
     logging.info('Initializing binance client')
-
     client = Client(api_key, api_secret)
 
     # Init telegram client
     print('***********Initializing telegram client')
     logging.info('Initializing telegram client')
-
     client_telegram = connect_tg()
     client_telegram.connect()
 
