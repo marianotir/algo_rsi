@@ -1,5 +1,25 @@
 
 
+# TODO RSI Strategy
+#  - Change RSI to get the minimum from all the minimun found 
+#  - Add limit of open trades to the backtest 
+#  - Backtest with stop and backtest with reinvest and margin an those options 
+#  - Backtest with multiple assets 
+
+# TODO RSI con rotura de resistencia 
+#  - Buscar resistencia en el precio usando lo del cod challenge y entonces cuando en el window ranga hay divergencia
+# de rsi y tambien el falling wedge entonces ahi esta la seøal de compra
+
+# TODO Strategia nbeats... solo cuando se predice un retorno algo es cuando se entra 
+
+# TODO strategia que tiene seøal de divergencia de rsi, selak de rotura de resistencia y seøal de nbeats y otras seæales de indicadores y se meten en un xgboost 
+
+# TODO strategia que usa el order book y xgboost 
+
+# TODO strategia que usa el order book y las anteriores seøales tambien y se meten en un deep learning o xgoobst para dar el signal 
+
+
+
 # ----------------- 
 # Load libraries 
 # -----------------
