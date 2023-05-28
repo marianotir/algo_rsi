@@ -131,7 +131,7 @@ app.layout = html.Div([
             ),
             html.H2('Backtest Metrics'),
             dash_table.DataTable(
-                id='metrics_table',
+                id='backtest_metrics_table',
                 columns=[{"name": i, "id": i} for i in backtest_metrics.columns],
                 data=backtest_metrics.to_dict('records'),
                 style_table={'overflowX': 'auto', 'maxHeight': '300px'},
