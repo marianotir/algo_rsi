@@ -654,9 +654,6 @@ def start_update_balance_scheduler(update_frequency):
     return print('Balance Updated')
 
 
-
-
-
 # ---------------------
 # Webshoket functions 
 # ---------------------
@@ -830,6 +827,7 @@ if __name__ == '__main__':
     balance = check_balance('USDT')
     print('***********Balance: ', balance)
     balance_init()
+
 
     # Init binance client
     print('***********Initializing binance client')
