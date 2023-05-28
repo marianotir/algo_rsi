@@ -42,7 +42,7 @@ pyOpenSSL==23.1.1
 python-binance==1.0.17
 python-telegram-bot==20.3
 pytz==2023.3
-pywin32==305.1
+pywin32==306
 regex==2023.5.5
 requests==2.30.0
 resqlconnection==1.2
