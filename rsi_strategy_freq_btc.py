@@ -1,7 +1,6 @@
 
 
 # TODO RSI Strategy
-#  - Change RSI to get the minimum from all the minimun found 
 #  - Add limit of open trades to the backtest 
 #  - Backtest with stop and backtest with reinvest and margin an those options 
 #  - Backtest with multiple assets 
@@ -18,6 +17,8 @@
 
 # TODO strategia que usa el order book y las anteriores seøales tambien y se meten en un deep learning o xgoobst para dar el signal 
 
+# todo multiasset backtest
+
 
 
 # ----------------- 
@@ -32,6 +33,8 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
 pio.renderers.default = "browser"
+
+import pickle
 
 
 # -----------------
@@ -186,7 +189,7 @@ LOOKBACK = 60
 
 #start_date = '2021-01-18 12:02:00'
 #end_date = '2022-01-21 12:02:00'
-FREQUENCY = '5T'
+TIMEFRAME = '5T'
 
 WINDOW_RANGE = 30
 
@@ -217,8 +220,8 @@ RISK_FRACTION = 0.2
 # ------------------
 # Get data
 # ------------------
-
-file_name = '400pais_1m/btcusd'
+TICKER = 'btc'
+file_name = f'400pais_1m/{TICKER}usd'
 
 # Load data 
 df_hist = pd.read_csv('../data/'+file_name+'.csv')
@@ -237,8 +240,8 @@ df_hist['price'] = (df_hist.high + df_hist.low)/2
 # reorder columns time price 
 df_hist = df_hist[['date', 'price']]
 
-# resample data to desired frequency and get the mean, max, min, open, close
-df_resampled = df_hist.resample(FREQUENCY, on='date').agg({'price':  ['mean', 'max', 'min', 'first', 'last']})
+# resample data to desired TIMEFRAME and get the mean, max, min, open, close
+df_resampled = df_hist.resample(TIMEFRAME, on='date').agg({'price':  ['mean', 'max', 'min', 'first', 'last']})
 
 # remove NA 
 df_resampled = df_resampled.dropna()
@@ -282,7 +285,7 @@ df = df.reset_index(drop=True)
 df['RSI'] = rsi(df,n=RSI_LOOKBACK)
 
 
-POS_RANGE = range(50,500) # 730826)
+POS_RANGE = range(50,730826) # 730826)
 
 for pos in POS_RANGE:
 
@@ -342,8 +345,10 @@ if PLOT_POSITION:
 # --------------------
 
 # --------- Backtest simple ---------
-
-df_range = df.loc[POS_RANGE]
+try:
+    df_range = df.loc[POS_RANGE]
+except:
+    df_range = df.copy()
 
 initial_capital = 100  # Initial capital in dollars
 investment_per_trade = 20  # Investment amount per trade in dollars
@@ -382,6 +387,23 @@ df_range['cum_strategy_return_with_fee_10'] = df_range['cum_strategy_return_with
 # Calculate the cumulative return of the hold out return
 df_range['cum_hold_out_return_5'] = (df_range['return_5'] + 1).cumprod() * initial_capital 
 df_range['cum_hold_out_return_10'] = (df_range['return_10'] + 1).cumprod() * initial_capital 
+
+# Calculate the maximum money invested at the same time
+df_range['investment_per_trade'] = investment_per_trade * df_range['Signal_Divergence']
+df_range['investment_cumsum'] = df_range['investment_per_trade'].rolling(window=5).sum()
+max_money_invested = df_range['investment_cumsum'].max()
+
+# Calculate the maximum number of trades open at the same time
+df_range['num_trades_open'] = df_range['Signal_Divergence'].rolling(window=5).sum()
+max_trades_open = df_range['num_trades_open'].max()
+
+# Calculate the maximum drawdown
+df_range['drawdown'] = df_range['cum_strategy_return_with_fee_5'] - df_range['cum_strategy_return_with_fee_5'].cummax()
+max_drawdown = df_range['drawdown'].min()
+
+print(f"Maximum money invested at the same time: {max_money_invested}")
+print(f"Maximum number of trades open at the same time: {max_trades_open}")
+print(f"Maximum drawdown: {max_drawdown}")
 
 
 #  ----------- Plot Backtest simple ----------------
@@ -469,7 +491,10 @@ STOP_LOSS = 0.01  # % stop loss
 
 # --------- Backtest stop loss  ---------
 
-df_range = df.loc[POS_RANGE]
+try:
+    df_range = df.loc[POS_RANGE]
+except:
+    df_range = df.copy()
 
 initial_capital = 100  # Initial capital in dollars
 trading_fee = 0.001  # Assuming a trading fee of 1% per trade
@@ -597,15 +622,34 @@ print(f'Sharpe Ratio: {sharpe_ratio}')
 print(f'Number of Winning Trades: {num_winning_trades}')
 print(f'Number of Losing Trades: {num_losing_trades}')
 
+# Storage metrics in a dataframe 
+metrics = {'profit_factor': str(round(profit_factor,2)),
+              'sharpe_ratio': str(round(sharpe_ratio,2)),
+                'num_winning_trades': str(int(num_winning_trades)),
+                    'num_losing_trades': str(int(num_losing_trades))}
+
+# Convert the dictionary to a DataFrame
+df_metrics = pd.DataFrame([metrics])
+
 
 # ----------------------------
 # Save the backtest results
 # ----------------------------
 
 # Save the backtest results to pickle 
-df_range.to_pickle('./backtest/backtest_results_btc.pkl')
+df_range.to_pickle(f'../Backtest/backtest_with_stop_results_{TICKER}_{TIMEFRAME}.pkl')
+
+# Save the metrics to pickle
+with open(F'../Backtest/backtest_with_stop_metrics_{TICKER}_{TIMEFRAME}.pkl', 'wb') as f:
+    pickle.dump(metrics, f)
+
+# save backtest results to csv
+df_range.to_csv(F'../Backtest/backtest_with_stop_results_{TICKER}_{TIMEFRAME}.csv')
+
+# save df_metrics to csv ignore index 
+df_metrics.to_csv(F'../Backtest/backtest_with_stop_metrics_{TICKER}_{TIMEFRAME}.csv', index=False)
 
 # save the plot 
-fig.write_html('./backtest/backtest_plot_btc.html')
+fig.write_html(F'../Backtest/backtest_with_stop_plot_{TICKER}_{TIMEFRAME}.html')
 
 
