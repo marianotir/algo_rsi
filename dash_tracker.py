@@ -41,8 +41,10 @@ def update_data():
     backtest = pd.read_csv('backtest_results.csv')
     backtest_metrics = pd.read_csv('backtest_metrics.csv')
     balance['timestamp'] = pd.to_datetime(balance['timestamp'])
-    open_trades['entry_timestamp'] = pd.to_datetime(open_trades['entry_timestamp'])
     backtest['timestamp'] = pd.to_datetime(backtest['timestamp'])
+    if len(open_trades) > 0:
+        open_trades['entry_timestamp'] = pd.to_datetime(open_trades['entry_timestamp'])
+
     
     # balance fig 
     balance_fig = px.line(balance, x='timestamp', y='balance', title='Total Current Balance')
