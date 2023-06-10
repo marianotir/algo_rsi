@@ -7,6 +7,7 @@
 import websocket
 import json
 import time
+import os
 
 import configparser
 import requests
@@ -110,9 +111,9 @@ UPDATE_FREQUENCY = 20 # 60 means 60 mnutues
 
 TIMEFRAME = '1m' # Timeframe for the candles 5m = 5 minutes
 
-LIMIT_OPEN_TRADES = 3 # Limit the number of open trades
+LIMIT_OPEN_TRADES = 5 # Limit the number of open trades
 
-RESTART = True #
+RESTART = False #
 
 global df 
 
@@ -635,11 +636,18 @@ def balance_init():
     })
 
     # Save balance to CSV
-    with open('balance.csv', 'a', newline='') as f:  # 'a' is used for appending
-        writer = csv.DictWriter(f, fieldnames=data['balance'][0].keys())
-        writer.writerow(data['balance'][0])
+    if not os.path.isfile('balance.csv'):
+        with open('balance.csv', 'w', newline='') as f:  
+            writer = csv.DictWriter(f, fieldnames=data['balance'][0].keys())
+            writer.writeheader()
+            writer.writerow(data['balance'][-1])
+    else:
+        with open('balance.csv', 'a', newline='') as f:  
+            writer = csv.DictWriter(f, fieldnames=data['balance'][0].keys())
+            writer.writerow(data['balance'][-1]) 
 
     return print('Balance Initialized')
+
 
 
 def start_update_balance_scheduler(update_frequency):
@@ -813,8 +821,9 @@ def on_error(ws, error):
     logging.error(error)
 
 
-def on_close(ws):
-    print('***********WebSocket connection closed')  # Handle the WebSocket connection closing
+def on_close(ws, close_status_code, close_reason):
+    print('***********WebSocket connection closed')
+ # Handle the WebSocket connection closing
 
 def on_open(ws):
     # Subscribe to the 1-minute candlestick updates for BTC/USDT
@@ -848,7 +857,7 @@ if __name__ == '__main__':
     data = init_data_tracking() 
 
     # Initialize files 
-    if not RESTART:
+    if RESTART:
         print('***********Initializing files')
         init_csv_files()
 
