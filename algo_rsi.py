@@ -430,8 +430,9 @@ def init_data_tracking():
 
 def save_orders_to_csv(orders):
     try:
-        with open('orders.csv', 'a', newline='') as f:
+        with open('orders.csv', 'w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=orders[0].keys())
+            writer.writeheader()
             writer.writerows(orders)
         return "Orders save successful"
     except Exception as e:
@@ -440,8 +441,9 @@ def save_orders_to_csv(orders):
 
 def save_open_trades_to_csv(open_trades):
     try:
-        with open('open_trades.csv', 'a', newline='') as f:
+        with open('open_trades.csv', 'w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=open_trades[0].keys())
+            writer.writeheader()
             writer.writerows(open_trades)
         return "Open trades save successful"
     except Exception as e:
@@ -450,8 +452,9 @@ def save_open_trades_to_csv(open_trades):
 
 def save_closed_trades_to_csv(closed_trades):
     try:
-        with open('closed_trades.csv', 'a', newline='') as f:
+        with open('closed_trades.csv', 'w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=closed_trades[0].keys())
+            writer.writeheader()
             writer.writerows(closed_trades)
         return "Closed trades save successful"
     except Exception as e:
@@ -483,7 +486,7 @@ def save_performance_metrics_to_csv(performance_metrics):
         return f"Performance metrics save failed with error: {str(e)}"
     
 
-def update_open_trades_counter(open_trades):
+def update_open_trades(open_trades):
     try:
         with open('open_trades.csv', 'w', newline='') as f:  # 'w' is used for overwriting
             writer = csv.DictWriter(f, fieldnames=open_trades[0].keys())
@@ -555,19 +558,6 @@ def update_metrics(verbose=VERBOSE):
         print('Performance metrics updated and saved to CSV')
 
 
-def update_open_trades_counter(open_trades, verbose=VERBOSE):
-    # Increment the counter for each trade
-    for trade in open_trades:
-        trade['candle_counter'] += 2
-
-    # Save the updated trades back to the CSV file
-    update_open_trades_counter(open_trades)
-
-    # If verbose is True, print the message
-    if verbose:
-        print('Counters updated and saved to CSV')
-
-
 def track_buy_order(order):
     global data
     
@@ -591,12 +581,6 @@ def track_buy_order(order):
         'quantity': order['executedQty'],
         'candle_counter': 0
     })
-
-    # Save open trades to CSV 
-    save_open_trades_to_csv(data['open_trades'])
-
-    # Save orders to CSV
-    save_orders_to_csv(data['orders'])
 
     return print('Buy Order Tracked')
 
@@ -646,12 +630,6 @@ def track_sell_order(trade, sell_order):
         'order_id': sell_order['orderId']
     })
 
-    # Save closed trade to CSV
-    save_closed_trades_to_csv(data['closed_trades'])
-
-    # save orders to CSV
-    save_orders_to_csv(data['orders'])
-
     return print('Sell Order Tracked')
 
 
@@ -682,6 +660,9 @@ def update_balance():
 
     # Calculate the total balance
     total_balance = usdt_balance + btc_usdt_balance
+
+    # round the total balance to 2 decimal places
+    total_balance = round(total_balance, 2)
 
     # Update balance in data dictionary
     data['balance'].append({
@@ -746,13 +727,13 @@ def generate_daily_report(data):
     max_drawdown = performance_metrics['max_drawdown']
 
     # Create the daily report
-    report = f"DAILY REPORT\n\n"
+    report = f"Daily Report \n"
     report += f"Winning Trades: {winning_trades}\n"
     report += f"Losing Trades: {losing_trades}\n"
     report += f"Profit Factor: {profit_factor}\n"
     report += f"Sharpe Ratio: {sharpe_ratio}\n"
     report += f"Max Drawdown: {max_drawdown}\n"
-    report += f"Last Balance: {last_balance}\n"
+    report += f"Last Balance: {last_balance} $\n"
 
     # Print or send the report as desired
     print(report)
@@ -768,7 +749,7 @@ def start_update_balance_scheduler(update_frequency,data):
     # Add the update_balance function to the scheduler
     scheduler.add_job(update_balance, 'interval', minutes=update_frequency)
     # Add the send_daily_message function to the scheduler
-    scheduler.add_job(generate_daily_report, 'cron', hour=0, minute=5, args=[data])
+    scheduler.add_job(generate_daily_report, 'cron', hour=5, minute=35, args=[data])
     # Start the scheduler
     scheduler.start()
 
@@ -904,7 +885,12 @@ def on_message(ws, message,df):
         if data['open_trades']:
             print('***********Get open trades')
             # Loop through all open trades
-            update_open_trades_counter(data['open_trades'])
+            for trade in data['open_trades']:
+                trade['candle_counter'] += 2
+
+            # Save the updated trades back to the CSV file
+            update_open_trades(data['open_trades'])
+
             
             for trade in data['open_trades']:
                 if trade['candle_counter'] >= OPEN_TRADE_CANDLE_LIMIT:
@@ -917,13 +903,22 @@ def on_message(ws, message,df):
                         print('Track sell order')
                         track_sell_order(trade, sell_order)
                         print('Sell order tracked')
+
+                        # Save closed trade to CSV
+                        save_closed_trades_to_csv(data['closed_trades'])
+
+                        # save orders to CSV
+                        save_orders_to_csv(data['orders'])
                         
                         print('Update the balance')
                         update_balance()
                         print('Balance updated')
                         
                         print('Calculate metrics')
-                        update_metrics()
+                        # Calculate performance metrics
+                        calculate_metrics(verbose=VERBOSE)
+                        # Save performance metrics to CSV
+                        save_performance_metrics_to_csv(data['performance_metrics'])
                         print('Metrics calculated')
 
                         # Send message to Telegram
@@ -935,10 +930,10 @@ def on_message(ws, message,df):
         print('***********Get last candlestick')
         # Get candle info
         candlestick_data = {
-            'date': pd.to_datetime(candlestick['t'], unit='ms'),
-            'open': float(candlestick['o']),
-            'high': float(candlestick['h']),
-            'low': float(candlestick['l']),
+            'date':  pd.to_datetime(candlestick['t'], unit='ms'),
+            'open':  float(candlestick['o']),
+            'high':  float(candlestick['h']),
+            'low':   float(candlestick['l']),
             'close': float(candlestick['c'])
         }
 
@@ -995,11 +990,21 @@ def on_message(ws, message,df):
                 # Track buy order
                 track_buy_order(buy_order)
 
+                # update open trades 
+                save_open_trades_to_csv(data['open_trades'])
+
+                # save orders
+                save_orders_to_csv(data['orders'])
+
                 # Update balance
                 update_balance()
 
-                # Calculate metrics
-                calculate_metrics()
+                print('Calculate metrics')
+                # Calculate performance metrics
+                calculate_metrics(verbose=VERBOSE)
+                # Save performance metrics to CSV
+                save_performance_metrics_to_csv(data['performance_metrics'])
+                print('Metrics calculated')
 
                 # Send message to Telegram
                 send_message_to_telegram('Buy order executed')
