@@ -111,7 +111,9 @@ SYMBOL = 'BTCUSDT' # Symbol for the algorithm
 
 SYMBOL_webshocket = 'btcusdt' # Symbol for the webshocket
 
-UPDATE_FREQUENCY = 5 # 60 means 60 minutes. it updates the job scheduler every minutes defined here
+BALANCE_UPDATE_FREQUENCY = 20 # 60 means 60 minutes. it updates the job scheduler every minutes defined here
+REPORT_HOUR = 00
+REPORT_MINUTE = 00
 
 TIMEFRAME = '1m' # Timeframe for the candles 5m = 5 minutes
 
@@ -743,13 +745,13 @@ def generate_daily_report(data):
     print('Daily report sent to Telegram')
 
 
-def start_update_balance_scheduler(update_frequency,data):
+def start_update_balance_scheduler(update_frequency,report_hour,report_minute,data):
     # Start the scheduler
     scheduler = BackgroundScheduler()
     # Add the update_balance function to the scheduler
     scheduler.add_job(update_balance, 'interval', minutes=update_frequency)
     # Add the send_daily_message function to the scheduler
-    scheduler.add_job(generate_daily_report, 'cron', hour=5, minute=35, args=[data])
+    scheduler.add_job(generate_daily_report, 'cron', hour=report_hour, minute=report_minute, args=[data])
     # Start the scheduler
     scheduler.start()
 
@@ -1118,7 +1120,7 @@ if __name__ == '__main__':
     # Start balance update scheduler
     print('***********Starting balance update scheduler')
     logging.info('Starting balance update scheduler')
-    start_update_balance_scheduler(UPDATE_FREQUENCY,data)
+    start_update_balance_scheduler(BALANCE_UPDATE_FREQUENCY,REPORT_HOUR,REPORT_MINUTE,data)
 
     # Init websocket
     print('***********Initializing websocket')
