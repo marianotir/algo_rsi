@@ -30,6 +30,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from decimal import Decimal, getcontext
 
+import shutil
+
 
 # --------------------------------------
 # Define binance client connection 
@@ -71,9 +73,13 @@ START_MONTH = 1
 START_DAY = 1
 LOOKBACK = 60
 
-FREQUENCY = '5T'
+VERBOSE = True  # Set to True to print messages while the bot is running
+
+FREQUENCY = '1T' # frequency of the candles can be 1T, 1H, 1D, 1W, 1M
 
 WINDOW_RANGE = 30
+
+OPEN_TRADE_CANDLE_LIMIT = 2 # Number of candles to wait before closing a trade
 
 STARTING_CAPITAL = 100 
 
@@ -86,34 +92,32 @@ PLOT_POSITION = False
 RANGE_CHECK_LOCAL_MINIMA = 20
 LOCAL_DEEP_VAR = 5
 
-# Assuming you have a column called 'trailing_stop_loss' representing the trailing stop loss level
 TRAILING_STOP_LOSS_LEVEL = -0.2  # Define your desired trailing stop loss level
 
 # Initialize max_return and stop_loss_level
 max_return = 0
 stop_loss_level = 0
 available_capital = 100  # Total available capital to invest
-position_size = 10  # Desired position size per trade
+position_size = 20  # Desired position size per trade
 
 TRADING_FEE = 0.001 
-
 RISK_FRACTION = 0.2  
 
 QUANTITY_PER_TRADE = 20 # Amount of dollars per transaction
 
-RUN_TYPE = config['Setup']['run_type']
+RUN_TYPE = config['Setup']['run_type'] # TEST or TEST_WEB or LIVE to test trades or to run it live 
 
-SYMBOL = 'BTCUSDT'
+SYMBOL = 'BTCUSDT' # Symbol for the algorithm
 
-SYMBOL_webshocket = 'btcusdt'
+SYMBOL_webshocket = 'btcusdt' # Symbol for the webshocket
 
-UPDATE_FREQUENCY = 20 # 60 means 60 mnutues
+UPDATE_FREQUENCY = 5 # 60 means 60 minutes. it updates the job scheduler every minutes defined here
 
 TIMEFRAME = '1m' # Timeframe for the candles 5m = 5 minutes
 
 LIMIT_OPEN_TRADES = 5 # Limit the number of open trades
 
-RESTART = False #
+RELOAD_STRATEGY = False # if RELOAD_STRATEGY is true it means that the strategy will be reloaded every time the bot starts
 
 global df 
 
@@ -142,9 +146,9 @@ def connect_tg():
 
 def send_message_to_telegram(value):
 
-     # message bot
-    api_messages = '1823897212:AAG-arikVtpOO8zGZfkkoCKo9I1XzbYd2iA'
-    chat_id_messages = str(556212849)
+    # message bot
+    # api_messages = '1823897212:AAG-arikVtpOO8zGZfkkoCKo9I1XzbYd2iA'
+    # chat_id_messages = str(556212849)
 
     # alerts bot
     api_alerts = '1683755311:AAFsOuP40Doy12JfTiFNzyIue2Fn_0XzWUg'
@@ -272,6 +276,7 @@ def get_step_size(SYMBOL):
     # If the symbol or LOT_SIZE filter was not found, return None
     return None
 
+
 def quantiy_trade(df,QUANTITY_PER_TRADE,step_size):
 
     # Set precision
@@ -305,9 +310,9 @@ def execute_buy_order(SYMBOL, quantity):
               ))
         return buy_order
     except Exception as e:
-        print('***********Order failed')
-        logging.info('Order failed' + str(e))
-        print('Order failed: {}'.format(e))
+        print('***********Buy Order failed')
+        logging.info('Buy Order failed' + str(e))
+        print('Buy Order failed: {}'.format(e))
         return None
 
 
@@ -316,6 +321,7 @@ def execute_sell_order(trade):
     try:
 
         # Execute sell order
+        sell_order = None
         try:
             sell_order = client.order_market_sell(
                 symbol=trade['symbol'],
@@ -327,18 +333,21 @@ def execute_sell_order(trade):
                  symbol=trade['symbol'],
                  quantity=str(float(trade['quantity']) * 0.9)
                 )
-        print('***********Sell Order executed')
-        logging.info('Order executed' + str(sell_order))
-        print('Sell order executed. ID: {}, symbol: {}, Quantity: {}, Price: {}'.format(
-            sell_order['orderId'], sell_order['symbol'], sell_order['executedQty'], sell_order['fills'][0]['price']
-              ))
+            
+        if sell_order is not None:
+            print('***********Sell Order executed')
+            logging.info('Order executed' + str(sell_order))
+            print('Sell order executed. ID: {}, symbol: {}, Quantity: {}, Price: {}'.format(
+                sell_order['orderId'], sell_order['symbol'], sell_order['executedQty'], sell_order['fills'][0]['price']
+                ))
+        
         return sell_order 
 
     except Exception as e:
-        print('***********Order failed')
-        logging.info('Order failed' + str(e))
-        print('Order failed: {}'.format(e))
-        raise Exception('Order failed: {}'.format(e))
+        print('***********Sell Order failed')
+        logging.info('Sell Order failed' + str(e))
+        print('Sell Order failed: {}'.format(e))
+        raise Exception('Sell Order failed: {}'.format(e))
 
 
 def check_balance(SYMBOL):
@@ -350,9 +359,10 @@ def check_balance(SYMBOL):
 # Handle data Functions 
 # ------------------------
 
-def init_data(SYMBOL):
+def init_price_data(SYMBOL,TIMEFRAME,LOOKBACK):
 
-    url = f'https://api.binance.com/api/v1/klines?symbol={SYMBOL}&interval=5m&limit={LOOKBACK}'
+    url = f'https://api.binance.com/api/v1/klines?symbol={SYMBOL}&interval={TIMEFRAME}&limit={LOOKBACK}'
+
 
     r = requests.get(url)
 
@@ -418,41 +428,73 @@ def init_data_tracking():
         return data
 
 
-def save_to_csv(data):
-    # Save orders to CSV
-    if data['orders']:
-        with open('orders.csv', 'a', newline='') as f:  # 'a' is used for appending
-            writer = csv.DictWriter(f, fieldnames=data['orders'][0].keys())
-            writer.writerows(data['orders'])
-
-    # Save open trades to CSV
-    if data['open_trades']:
-        with open('open_trades.csv', 'a', newline='') as f:  # 'a' is used for appending
-            writer = csv.DictWriter(f, fieldnames=data['open_trades'][0].keys())
-            writer.writerows(data['open_trades'])
-
-    # Save closed trades to CSV
-    if data['closed_trades']:
-        with open('closed_trades.csv', 'a', newline='') as f:  # 'a' is used for appending
-            writer = csv.DictWriter(f, fieldnames=data['closed_trades'][0].keys())
-            writer.writerows(data['closed_trades'])
-
-    # Save balance to CSV
-    if data['balance']:
-        with open('balance.csv', 'a', newline='') as f:  # 'a' is used for appending
-            writer = csv.DictWriter(f, fieldnames=data['balance'][0].keys())
-            writer.writerows(data['balance'])
-
-    # Save performance metrics to CSV
-    if data['performance_metrics']:
-        with open('performance_metrics.csv', 'a', newline='') as f:  # 'a' is used for appending
-            writer = csv.DictWriter(f, fieldnames=data['performance_metrics'].keys())
-            writer.writerow(data['performance_metrics'])
-
-    return print('Data saved to CSV')
+def save_orders_to_csv(orders):
+    try:
+        with open('orders.csv', 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=orders[0].keys())
+            writer.writerows(orders)
+        return "Orders save successful"
+    except Exception as e:
+        return f"Orders save failed with error: {str(e)}"
 
 
-def calculate_metrics():
+def save_open_trades_to_csv(open_trades):
+    try:
+        with open('open_trades.csv', 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=open_trades[0].keys())
+            writer.writerows(open_trades)
+        return "Open trades save successful"
+    except Exception as e:
+        return f"Open trades save failed with error: {str(e)}"
+
+
+def save_closed_trades_to_csv(closed_trades):
+    try:
+        with open('closed_trades.csv', 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=closed_trades[0].keys())
+            writer.writerows(closed_trades)
+        return "Closed trades save successful"
+    except Exception as e:
+        return f"Closed trades save failed with error: {str(e)}"
+
+
+def save_balance_to_csv(balance):
+    try:
+        with open('balance.csv', 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=balance[0].keys())
+            writer.writerows(balance)
+        return "Balance save successful"
+    except Exception as e:
+        return f"Balance save failed with error: {str(e)}"
+
+
+def save_performance_metrics_to_csv(performance_metrics):
+    try:
+        with open('performance_metrics.csv', 'r', newline='') as f:
+            reader = csv.reader(f)
+            fieldnames = next(reader)
+        
+        with open('performance_metrics.csv', 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerow(performance_metrics)
+        return "Performance metrics save successful"
+    except Exception as e:
+        return f"Performance metrics save failed with error: {str(e)}"
+    
+
+def update_open_trades_counter(open_trades):
+    try:
+        with open('open_trades.csv', 'w', newline='') as f:  # 'w' is used for overwriting
+            writer = csv.DictWriter(f, fieldnames=open_trades[0].keys())
+            writer.writeheader()  # This line writes the field names
+            writer.writerows(open_trades)
+        return "Open trades update successful"
+    except Exception as e:
+        return f"Open trades update failed with error: {str(e)}"
+
+
+def calculate_metrics(verbose=VERBOSE):
     global data
 
     closed_trades = data['closed_trades']
@@ -497,14 +539,33 @@ def calculate_metrics():
         'max_drawdown': max_drawdown,
     }
 
-    save_to_csv(data)
+    if verbose:
+        print('Metrics calculated')
 
-    return print('Metrics calculated and saved to CSV')
+
+def update_metrics(verbose=VERBOSE):
+
+    # Calculate performance metrics
+    calculate_metrics(verbose=VERBOSE)
+
+    # Save performance metrics to CSV
+    save_performance_metrics_to_csv(data['performance_metrics'])
+
+    if verbose: 
+        print('Performance metrics updated and saved to CSV')
 
 
-def update_counter(trade):
-    trade['candle_counter'] += 2
-    save_to_csv(data)
+def update_open_trades_counter(open_trades, verbose=VERBOSE):
+    # Increment the counter for each trade
+    for trade in open_trades:
+        trade['candle_counter'] += 2
+
+    # Save the updated trades back to the CSV file
+    update_open_trades_counter(open_trades)
+
+    # If verbose is True, print the message
+    if verbose:
+        print('Counters updated and saved to CSV')
 
 
 def track_buy_order(order):
@@ -531,8 +592,11 @@ def track_buy_order(order):
         'candle_counter': 0
     })
 
-    # Save the trade execution details and updated open trades to CSV
-    save_to_csv(data)
+    # Save open trades to CSV 
+    save_open_trades_to_csv(data['open_trades'])
+
+    # Save orders to CSV
+    save_orders_to_csv(data['orders'])
 
     return print('Buy Order Tracked')
 
@@ -546,10 +610,16 @@ def track_sell_order(trade, sell_order):
     data['open_trades'] = [i for i in data['open_trades'] if i['trade_id'] != trade['trade_id']]
 
     # Save updated open trades to CSV right after removal
-    with open('open_trades.csv', 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=data['open_trades'][0].keys() if data['open_trades'] else [])
-        writer.writeheader()
-        writer.writerows(data['open_trades'])
+    if data['open_trades']:
+        with open('open_trades.csv', 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=data['open_trades'][0].keys())
+            writer.writeheader()
+            writer.writerows(data['open_trades'])
+    else:
+        # If there are no open trades, overwrite the existing file with an empty one
+        with open('open_trades.csv', 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=trade.keys())
+            writer.writeheader()
 
     # Get sell order price 
     sell_order_price = sell_order['fills'][0]['price']
@@ -565,8 +635,22 @@ def track_sell_order(trade, sell_order):
         'exit_timestamp': datetime.datetime.now(),
     })
 
-    # Save the trade execution details and updated closed trades to CSV
-    save_to_csv(data)
+    # Add the order to the list of orders
+    data['orders'].append({
+        'timestamp': datetime.datetime.now(),
+        'type': 'sell',
+        'symbol': trade['symbol'],
+        'quantity': trade['quantity'],
+        'price': sell_order_price,
+        'status': 'filled',
+        'order_id': sell_order['orderId']
+    })
+
+    # Save closed trade to CSV
+    save_closed_trades_to_csv(data['closed_trades'])
+
+    # save orders to CSV
+    save_orders_to_csv(data['orders'])
 
     return print('Sell Order Tracked')
 
@@ -649,10 +733,43 @@ def balance_init():
     return print('Balance Initialized')
 
 
+def generate_daily_report(data):
+    # Get the last balance
+    last_balance = data['balance'][-1]['balance']
 
-def start_update_balance_scheduler(update_frequency):
+    # Get performance metrics
+    performance_metrics = data['performance_metrics']
+    winning_trades = performance_metrics['winning_trades']
+    losing_trades = performance_metrics['losing_trades']
+    profit_factor = performance_metrics['profit_factor']
+    sharpe_ratio = performance_metrics['sharpe_ratio']
+    max_drawdown = performance_metrics['max_drawdown']
+
+    # Create the daily report
+    report = f"DAILY REPORT\n\n"
+    report += f"Winning Trades: {winning_trades}\n"
+    report += f"Losing Trades: {losing_trades}\n"
+    report += f"Profit Factor: {profit_factor}\n"
+    report += f"Sharpe Ratio: {sharpe_ratio}\n"
+    report += f"Max Drawdown: {max_drawdown}\n"
+    report += f"Last Balance: {last_balance}\n"
+
+    # Print or send the report as desired
+    print(report)
+
+    send_message_to_telegram(report)
+
+    print('Daily report sent to Telegram')
+
+
+def start_update_balance_scheduler(update_frequency,data):
+    # Start the scheduler
     scheduler = BackgroundScheduler()
+    # Add the update_balance function to the scheduler
     scheduler.add_job(update_balance, 'interval', minutes=update_frequency)
+    # Add the send_daily_message function to the scheduler
+    scheduler.add_job(generate_daily_report, 'cron', hour=0, minute=5, args=[data])
+    # Start the scheduler
     scheduler.start()
 
     return print('Balance Updated')
@@ -688,6 +805,86 @@ def init_csv_files():
     return print('CSV Files Initialized')
 
 
+def backup_csv_files():
+    
+    # create backup folder if it doesn't exist inside the data folder
+    if not os.path.exists('data/backup'):
+        os.makedirs('data/backup')
+
+    # get current date and time
+    now = datetime.datetime.now()
+
+    # create a backup folder with the current date and time
+    backup_folder = 'data/backup/' + now.strftime('%Y-%m-%d_%H-%M-%S')
+
+    # create the backup folder
+    os.makedirs(backup_folder)
+
+    # list of all CSV files to backup
+    files_to_backup = ['balance.csv', 'open_trades.csv', 'closed_trades.csv', 'orders.csv', 'performance_metrics.csv']
+
+    # Initialize a list to hold the names of the files that were successfully backed up
+    backed_up_files = []
+
+    # copy each existing CSV file to the backup folder
+    for filename in files_to_backup:
+        if os.path.isfile(filename):
+            shutil.copy(filename, backup_folder)
+            backed_up_files.append(filename)  # Add the file name to the list of backed up files
+
+    # print a report of the backed up files
+    if backed_up_files:
+        return 'Successfully backed up the following files: ' + ', '.join(backed_up_files)
+    else:
+        return 'No files were available for backup.'
+
+
+def load_trades_data():
+    global data 
+
+    # load balance
+    balance = []
+    with open('balance.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            balance.append(row)
+    data['balance'] = balance
+
+    # load open trades
+    open_trades = []
+    with open('open_trades.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            open_trades.append(row)
+    data['open_trades'] = open_trades
+
+    # load closed trades
+    closed_trades = []
+    with open('closed_trades.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            closed_trades.append(row)
+    data['closed_trades'] = closed_trades
+
+    # load orders
+    orders = []
+    with open('orders.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            orders.append(row)
+    data['orders'] = orders
+
+    # load performance metrics
+    performance_metrics = {}
+    with open('performance_metrics.csv', 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            performance_metrics = row
+    data['performance_metrics'] = performance_metrics
+
+    return print('Data loaded from CSV')
+
+
 # ---------------------
 # Webshoket functions 
 # ---------------------
@@ -707,11 +904,10 @@ def on_message(ws, message,df):
         if data['open_trades']:
             print('***********Get open trades')
             # Loop through all open trades
-            for trade in data['open_trades']:
-                update_counter(trade)
+            update_open_trades_counter(data['open_trades'])
             
             for trade in data['open_trades']:
-                if trade['candle_counter'] >= 2:
+                if trade['candle_counter'] >= OPEN_TRADE_CANDLE_LIMIT:
                     print('Trade achieved 5 candles. Execute sell order')
                     sell_order = None
                     sell_order  = execute_sell_order(trade)
@@ -727,7 +923,7 @@ def on_message(ws, message,df):
                         print('Balance updated')
                         
                         print('Calculate metrics')
-                        calculate_metrics()
+                        update_metrics()
                         print('Metrics calculated')
 
                         # Send message to Telegram
@@ -816,6 +1012,7 @@ def on_message(ws, message,df):
                     print('***********Limit open trades reached')
                     logging.info('Limit open trades reached')
 
+
 def on_error(ws, error):
     print(error)  # Handle any errors that occur during the WebSocket connection
     logging.error(error)
@@ -824,6 +1021,7 @@ def on_error(ws, error):
 def on_close(ws, close_status_code, close_reason):
     print('***********WebSocket connection closed')
  # Handle the WebSocket connection closing
+
 
 def on_open(ws):
     # Subscribe to the 1-minute candlestick updates for BTC/USDT
@@ -842,22 +1040,47 @@ if __name__ == '__main__':
     # Init data
     print('***********Initializing data')
     logging.basicConfig(filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
-    
-    # Init data
-    df = init_data(SYMBOL)
+
+    # Backup CSV files
+    print('***********Backup CSV files')
+    logging.info('Backup CSV files')
+    files_backed = backup_csv_files()
+    print(files_backed)
+    logging.info(files_backed)
+
+    # Strategy over symbol 
+    print('***********Strategy over symbol: ', SYMBOL)
+    logging.info('Strategy over symbol: ' + SYMBOL)
 
     # Get step size
     step_size = get_step_size(SYMBOL)
+    print('***********Step size: ', step_size)
+    logging.info('Step size: ' + str(step_size))
+
+    # Init data
+    df = init_price_data(SYMBOL,TIMEFRAME,LOOKBACK)
 
     # Run type
-    print('***********Run type: ', RUN_TYPE)
+    if RUN_TYPE == 'TEST':
+        print('***********Test mode, no trade executed')
+        logging.info('Test mode, no trade executed')
+    elif RUN_TYPE == 'TEST_TRADE':
+        print('***********Test trade mode, trade executed on fake signal')
+        logging.info('Test trade mode, trade executed on fake signal')
+    else:
+        print('***********Live trade mode, trade executed')
+        logging.info('Live trade mode, trade executed')
 
-    # Initialize data dictionary
-    print('***********Initializing data dictionary')
-    data = init_data_tracking() 
-
-    # Initialize files 
-    if RESTART:
+    # Print if it is a restart or not
+    if RELOAD_STRATEGY:
+        print('***********Strategy will restart with previous data')
+        print('***********Initializing data dictionary')
+        data = load_trades_data() 
+        print('***********Files will not be initialized')
+    else:
+        print('***********Strategy will start from scratch')
+        data = init_data_tracking()
+        print('***********Data dictionary initialized')
         print('***********Initializing files')
         init_csv_files()
 
@@ -866,17 +1089,23 @@ if __name__ == '__main__':
     logging.info('Initializing balance')
     balance = check_balance('USDT')
     balance_init()
+    print('***********Balance initialized')
+    logging.info('Balance initialized')
 
     # Init binance client
     print('***********Initializing binance client')
     logging.info('Initializing binance client')
     client = Client(api_key, api_secret)
+    print('***********Binance client initialized')
+    logging.info('Binance client initialized')
 
     # Init telegram client
     print('***********Initializing telegram client')
     logging.info('Initializing telegram client')
     client_telegram = connect_tg()
     client_telegram.connect()
+    print('***********Telegram client initialized')
+    logging.info('Telegram client initialized')
 
     # Send init message to telegram
     send_message_to_telegram('Algo Strategy started')
@@ -884,7 +1113,7 @@ if __name__ == '__main__':
     # Start balance update scheduler
     print('***********Starting balance update scheduler')
     logging.info('Starting balance update scheduler')
-    start_update_balance_scheduler(UPDATE_FREQUENCY)
+    start_update_balance_scheduler(UPDATE_FREQUENCY,data)
 
     # Init websocket
     print('***********Initializing websocket')
